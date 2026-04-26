@@ -21,6 +21,7 @@ class ElementoFinitoModerno {
 public:
     virtual ~ElementoFinitoModerno() = default;
     virtual std::vector<int> getIndicesGlobais(const DOFManager& dofManager) const = 0;
+    virtual std::pair<int, int> getNodeIds() const = 0; // Retorna IDs dos nós (n1, n2)
     virtual Eigen::MatrixXd getMatrizRigidez(const Eigen::VectorXd& uGlobal, const DOFManager& dofManager) const = 0;
     virtual Eigen::VectorXd getForcasInternas(const Eigen::VectorXd& uGlobal, const DOFManager& dofManager) const = 0;
     virtual EsforcosLocaisModernos getEsforcosLocais(const Eigen::VectorXd& uGlobal, const DOFManager& dofManager) const = 0;

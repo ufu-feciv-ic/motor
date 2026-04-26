@@ -3,6 +3,37 @@
 #include <Eigen/SparseLU>
 #include <iostream>
 
+// --- LINEAR SOLVER ---
+
+std::vector<StepResultModerno> LinearSolver::solve(const EstruturaModerna& est, const DOFManager& dofManager, const Eigen::VectorXd& fExterno) {
+    int totalDofs = dofManager.getNumTotalDofs();
+    Eigen::VectorXd uZero = Eigen::VectorXd::Zero(totalDofs);
+    
+    // Montagem da matriz de rigidez inicial (Lambda = 0)
+    std::vector<SparseAssembler::Triplet> triplets;
+    for (const auto& el : est.elementos) {
+        SparseAssembler::adicionarContribuicao(triplets, el->getIndicesGlobais(dofManager), el->getMatrizRigidez(uZero, dofManager));
+    }
+    auto K = SparseAssembler::construirMatriz(totalDofs, triplets);
+    
+    Eigen::VectorXd F = fExterno;
+    est.aplicarCondicoesContorno(K, F, dofManager);
+
+    // Solução direta F = K * u
+    Eigen::SparseLU<Eigen::SparseMatrix<double>> solver;
+    solver.compute(K);
+    Eigen::VectorXd uFinal = solver.solve(F);
+
+    std::vector<StepResultModerno> history;
+    history.push_back({uZero, 0.0});  // Passo inicial
+    history.push_back({uFinal, 1.0}); // Passo final (Linear)
+    
+    std::cout << "Solver Linear concluido em passo unico." << std::endl;
+    return history;
+}
+
+// --- ARC LENGTH SOLVER ---
+
 ArcLengthSolver::ArcLengthSolver(int steps, int iterations, double tolerance, double arcLength, double targetIter)
     : numSteps(steps), maxIter(iterations), tol(tolerance), dL0(arcLength), Nd(targetIter) {}
 
@@ -52,7 +83,6 @@ std::vector<StepResultModerno> ArcLengthSolver::solve(const EstruturaModerna& es
             }
 
             Eigen::VectorXd g = lambdaIter * fExterno - fInt;
-            // Zerar resíduo nas restrições (manualmente para o vetor)
             for (auto const& [nodeId, dofs] : est.restricoes) {
                 auto indices = dofManager.obterIndicesGlobais(nodeId);
                 for (int d : dofs) g(indices[d]) = 0.0;
