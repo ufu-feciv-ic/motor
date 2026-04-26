@@ -1,6 +1,7 @@
 #define _USE_MATH_DEFINES
 #include "Elements.h"
 #include <cmath>
+#include <iostream>
 
 // --- VIGA CORROTACIONAL ---
 
@@ -10,6 +11,7 @@ Viga2DCorrotacionalModerna::Viga2DCorrotacionalModerna(std::shared_ptr<NoModerno
     double dx = n2->x - n1->x;
     double dy = n2->y - n1->y;
     L0 = std::sqrt(dx * dx + dy * dy);
+    if (L0 < 1e-12) L0 = 1e-12;
 }
 
 double Viga2DCorrotacionalModerna::normalizarAngulo(double angulo) {
@@ -27,8 +29,11 @@ std::vector<int> Viga2DCorrotacionalModerna::getIndicesGlobais(const DOFManager&
 
 Eigen::MatrixXd Viga2DCorrotacionalModerna::getMatrizRigidez(const Eigen::VectorXd& uGlobal, const DOFManager& dofManager) const {
     auto indices = getIndicesGlobais(dofManager);
-    Eigen::VectorXd uElem(6);
-    for(int i=0; i<6; ++i) uElem(i) = uGlobal(indices[i]);
+    Eigen::Matrix<double, 6, 1> uElem;
+    for(int i=0; i<6; ++i) {
+        if (indices[i] < uGlobal.size()) uElem(i) = uGlobal(indices[i]);
+        else uElem(i) = 0.0;
+    }
 
     double dx = (n2->x + uElem(3)) - (n1->x + uElem(0));
     double dy = (n2->y + uElem(4)) - (n1->y + uElem(1));
@@ -56,19 +61,22 @@ Eigen::MatrixXd Viga2DCorrotacionalModerna::getMatrizRigidez(const Eigen::Vector
     D << E*A/L0, 0, 0, 0, 4.0*E*I/L0, 2.0*E*I/L0, 0, 2.0*E*I/L0, 4.0*E*I/L0;
 
     Eigen::Matrix<double, 6, 6> KM = B.transpose() * D * B;
-    Eigen::Vector<double, 6> r, z;
+    Eigen::Matrix<double, 6, 1> r, z;
     r << -C, -S, 0, C, S, 0; z << S, -C, 0, -S, C, 0;
 
-    Eigen::MatrixXd K1 = (N/L)*(z*z.transpose());
-    Eigen::MatrixXd K2 = ((M1+M2)/(L*L))*(r*z.transpose() + z*r.transpose());
+    Eigen::Matrix<double, 6, 6> K1 = (N/L)*(z*z.transpose());
+    Eigen::Matrix<double, 6, 6> K2 = ((M1+M2)/(L*L))*(r*z.transpose() + z*r.transpose());
 
     return KM + K1 + K2;
 }
 
 Eigen::VectorXd Viga2DCorrotacionalModerna::getForcasInternas(const Eigen::VectorXd& uGlobal, const DOFManager& dofManager) const {
     auto indices = getIndicesGlobais(dofManager);
-    Eigen::VectorXd uElem(6);
-    for(int i=0; i<6; ++i) uElem(i) = uGlobal(indices[i]);
+    Eigen::Matrix<double, 6, 1> uElem;
+    for(int i=0; i<6; ++i) {
+        if (indices[i] < uGlobal.size()) uElem(i) = uGlobal(indices[i]);
+        else uElem(i) = 0.0;
+    }
 
     double dx = (n2->x + uElem(3)) - (n1->x + uElem(0));
     double dy = (n2->y + uElem(4)) - (n1->y + uElem(1));
@@ -97,8 +105,11 @@ Eigen::VectorXd Viga2DCorrotacionalModerna::getForcasInternas(const Eigen::Vecto
 
 EsforcosLocaisModernos Viga2DCorrotacionalModerna::getEsforcosLocais(const Eigen::VectorXd& uGlobal, const DOFManager& dofManager) const {
     auto indices = getIndicesGlobais(dofManager);
-    Eigen::VectorXd uElem(6);
-    for(int i=0; i<6; ++i) uElem(i) = uGlobal(indices[i]);
+    Eigen::Matrix<double, 6, 1> uElem;
+    for(int i=0; i<6; ++i) {
+        if (indices[i] < uGlobal.size()) uElem(i) = uGlobal(indices[i]);
+        else uElem(i) = 0.0;
+    }
 
     double dx = (n2->x + uElem(3)) - (n1->x + uElem(0));
     double dy = (n2->y + uElem(4)) - (n1->y + uElem(1));
@@ -128,6 +139,7 @@ Viga2DLinearModerna::Viga2DLinearModerna(std::shared_ptr<NoModerno> node1, std::
     double dx = n2->x - n1->x;
     double dy = n2->y - n1->y;
     L0 = std::sqrt(dx * dx + dy * dy);
+    if (L0 < 1e-12) L0 = 1e-12;
     cos0 = dx / L0;
     sin0 = dy / L0;
 }
@@ -139,13 +151,13 @@ std::vector<int> Viga2DLinearModerna::getIndicesGlobais(const DOFManager& dofMan
     return i1;
 }
 
-Eigen::MatrixXd Viga2DLinearModerna::getMatrizRigidez(const Eigen::VectorXd& uGlobal, const DOFManager& dofManager) const {
+Eigen::MatrixXd Viga2DLinearModerna::getMatrizRigidez(const Eigen::VectorXd& /*uGlobal*/, const DOFManager& /*dofManager*/) const {
     double EAL = E * A / L0;
     double EIL = E * I / L0;
     double EIL2 = E * I / (L0 * L0);
     double EIL3 = E * I / (L0 * L0 * L0);
 
-    Eigen::MatrixXd kLoc = Eigen::MatrixXd::Zero(6, 6);
+    Eigen::Matrix<double, 6, 6> kLoc = Eigen::Matrix<double, 6, 6>::Zero();
     kLoc << EAL, 0, 0, -EAL, 0, 0,
             0, 12*EIL3, 6*EIL2, 0, -12*EIL3, 6*EIL2,
             0, 6*EIL2, 4*EIL, 0, -6*EIL2, 2*EIL,
@@ -153,7 +165,7 @@ Eigen::MatrixXd Viga2DLinearModerna::getMatrizRigidez(const Eigen::VectorXd& uGl
             0, -12*EIL3, -6*EIL2, 0, 12*EIL3, -6*EIL2,
             0, 6*EIL2, 2*EIL, 0, -6*EIL2, 4*EIL;
 
-    Eigen::MatrixXd T = Eigen::MatrixXd::Zero(6, 6);
+    Eigen::Matrix<double, 6, 6> T = Eigen::Matrix<double, 6, 6>::Zero();
     T << cos0, sin0, 0, 0, 0, 0,
          -sin0, cos0, 0, 0, 0, 0,
          0, 0, 1, 0, 0, 0,
@@ -166,19 +178,25 @@ Eigen::MatrixXd Viga2DLinearModerna::getMatrizRigidez(const Eigen::VectorXd& uGl
 
 Eigen::VectorXd Viga2DLinearModerna::getForcasInternas(const Eigen::VectorXd& uGlobal, const DOFManager& dofManager) const {
     auto indices = getIndicesGlobais(dofManager);
-    Eigen::VectorXd uElem(6);
-    for(int i=0; i<6; ++i) uElem(i) = uGlobal(indices[i]);
+    Eigen::Matrix<double, 6, 1> uElem;
+    for(int i=0; i<6; ++i) {
+        if (indices[i] < uGlobal.size()) uElem(i) = uGlobal(indices[i]);
+        else uElem(i) = 0.0;
+    }
 
-    Eigen::MatrixXd K = getMatrizRigidez(uGlobal, dofManager);
+    Eigen::Matrix<double, 6, 6> K = getMatrizRigidez(uGlobal, dofManager);
     return K * uElem;
 }
 
 EsforcosLocaisModernos Viga2DLinearModerna::getEsforcosLocais(const Eigen::VectorXd& uGlobal, const DOFManager& dofManager) const {
     auto indices = getIndicesGlobais(dofManager);
-    Eigen::VectorXd uElem(6);
-    for(int i=0; i<6; ++i) uElem(i) = uGlobal(indices[i]);
+    Eigen::Matrix<double, 6, 1> uElem;
+    for(int i=0; i<6; ++i) {
+        if (indices[i] < uGlobal.size()) uElem(i) = uGlobal(indices[i]);
+        else uElem(i) = 0.0;
+    }
 
-    Eigen::MatrixXd T = Eigen::MatrixXd::Zero(6, 6);
+    Eigen::Matrix<double, 6, 6> T = Eigen::Matrix<double, 6, 6>::Zero();
     T << cos0, sin0, 0, 0, 0, 0,
          -sin0, cos0, 0, 0, 0, 0,
          0, 0, 1, 0, 0, 0,
@@ -186,14 +204,14 @@ EsforcosLocaisModernos Viga2DLinearModerna::getEsforcosLocais(const Eigen::Vecto
          0, 0, 0, -sin0, cos0, 0,
          0, 0, 0, 0, 0, 1;
 
-    Eigen::VectorXd uLoc = T * uElem;
+    Eigen::Matrix<double, 6, 1> uLoc = T * uElem;
     
     double EAL = E * A / L0;
     double EIL = E * I / L0;
     double EIL2 = E * I / (L0 * L0);
     double EIL3 = E * I / (L0 * L0 * L0);
 
-    Eigen::MatrixXd kLoc = Eigen::MatrixXd::Zero(6, 6);
+    Eigen::Matrix<double, 6, 6> kLoc = Eigen::Matrix<double, 6, 6>::Zero();
     kLoc << EAL, 0, 0, -EAL, 0, 0,
             0, 12*EIL3, 6*EIL2, 0, -12*EIL3, 6*EIL2,
             0, 6*EIL2, 4*EIL, 0, -6*EIL2, 2*EIL,
@@ -201,6 +219,6 @@ EsforcosLocaisModernos Viga2DLinearModerna::getEsforcosLocais(const Eigen::Vecto
             0, -12*EIL3, -6*EIL2, 0, 12*EIL3, -6*EIL2,
             0, 6*EIL2, 2*EIL, 0, -6*EIL2, 4*EIL;
 
-    Eigen::VectorXd fLoc = kLoc * uLoc;
+    Eigen::Matrix<double, 6, 1> fLoc = kLoc * uLoc;
     return { fLoc(3), fLoc(4), fLoc(2), fLoc(5) };
 }

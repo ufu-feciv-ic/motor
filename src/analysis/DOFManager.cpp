@@ -1,31 +1,20 @@
 #include "DOFManager.h"
-#include <iostream>
 
 DOFManager::DOFManager(int dofsPorNo) 
-    : proximoIndiceLivre(0), dofsPorNoDefault(dofsPorNo) {}
+    : maiorIdEncontrado(-1), dofsPorNoDefault(dofsPorNo) {}
 
-void DOFManager::registrarNo(int idExterno, int numDofs) {
-    if (idExternoParaIndiceBase.find(idExterno) != idExternoParaIndiceBase.end()) {
-        return; // Já registrado
+void DOFManager::registrarNo(int idNo, int /*numDofs*/) {
+    if (idNo > maiorIdEncontrado) {
+        maiorIdEncontrado = idNo;
     }
-
-    int nDofs = (numDofs == -1) ? dofsPorNoDefault : numDofs;
-    idExternoParaIndiceBase[idExterno] = proximoIndiceLivre;
-    proximoIndiceLivre += nDofs;
 }
 
-std::vector<int> DOFManager::obterIndicesGlobais(int idExterno, int numDofs) const {
-    auto it = idExternoParaIndiceBase.find(idExterno);
-    if (it == idExternoParaIndiceBase.end()) {
-        std::cerr << "ERRO: No ID " << idExterno << " nao foi registrado no DOFManager!" << std::endl;
-        return {};
-    }
-
+std::vector<int> DOFManager::obterIndicesGlobais(int idNo, int numDofs) const {
     int nDofs = (numDofs == -1) ? dofsPorNoDefault : numDofs;
     std::vector<int> indices;
     indices.reserve(nDofs);
     
-    int base = it->second;
+    int base = idNo * nDofs;
     for (int i = 0; i < nDofs; ++i) {
         indices.push_back(base + i);
     }
@@ -33,10 +22,10 @@ std::vector<int> DOFManager::obterIndicesGlobais(int idExterno, int numDofs) con
 }
 
 int DOFManager::getNumTotalDofs() const {
-    return proximoIndiceLivre;
+    if (maiorIdEncontrado == -1) return 0;
+    return (maiorIdEncontrado + 1) * dofsPorNoDefault;
 }
 
 void DOFManager::limpar() {
-    idExternoParaIndiceBase.clear();
-    proximoIndiceLivre = 0;
+    maiorIdEncontrado = -1;
 }

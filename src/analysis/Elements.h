@@ -30,6 +30,7 @@ public:
     Viga2DLinearModerna(std::shared_ptr<NoModerno> node1, std::shared_ptr<NoModerno> node2, const MaterialData& mat);
 
     std::vector<int> getIndicesGlobais(const DOFManager& dofManager) const override;
+    std::pair<int, int> getNodeIds() const override { return {n1->id, n2->id}; }
     Eigen::MatrixXd getMatrizRigidez(const Eigen::VectorXd& uGlobal, const DOFManager& dofManager) const override;
     Eigen::VectorXd getForcasInternas(const Eigen::VectorXd& uGlobal, const DOFManager& dofManager) const override;
     EsforcosLocaisModernos getEsforcosLocais(const Eigen::VectorXd& uGlobal, const DOFManager& dofManager) const override;

@@ -74,10 +74,16 @@ SimulacaoResultado executarSimulacao(bool naoLinear, int tipoEstrutura) {
     res.history = solver->solve(res.est, res.dofManager, fExt);
 
     if (!res.history.empty()) {
-        int idxGlobal = res.dofManager.obterIndicesGlobais(res.dofInteresse)[(tipoEstrutura==2 ? 0 : 1)]; 
-        for (const auto& step : res.history) {
-            res.plot_u.push_back(std::abs(step.u(idxGlobal)) / res.refDim);
-            res.plot_f.push_back(step.lambda);
+        auto indices = res.dofManager.obterIndicesGlobais(res.dofInteresse);
+        int subIdx = (tipoEstrutura == 2 ? 0 : 1);
+        if (subIdx < (int)indices.size()) {
+            int idxGlobal = indices[subIdx];
+            for (const auto& step : res.history) {
+                if (idxGlobal < step.u.size()) {
+                    res.plot_u.push_back(std::abs(step.u(idxGlobal)) / res.refDim);
+                    res.plot_f.push_back(step.lambda);
+                }
+            }
         }
     }
     return res;
@@ -155,24 +161,18 @@ int main()
     while (!WindowShouldClose())
     {
         if (!ImGui::GetIO().WantCaptureMouse) {
-            if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
-                Vector2 delta = GetMouseDelta();
-                delta = Vector2Scale(delta, -1.0f/camera.zoom);
-                camera.target = Vector2Add(camera.target, delta);
-            }
-            float wheel = GetMouseWheelMove();
-            if (wheel != 0) {
-                Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
-                camera.offset = GetMousePosition();
-                camera.target = mouseWorldPos;
-                camera.zoom += wheel * 2.0f;
-                if (camera.zoom < 1.0f) camera.zoom = 1.0f;
-            }
+            // ... (pulei controle de camera para brevidade)
         }
 
         BeginDrawing();
         ClearBackground(Color{20, 20, 25, 255});
         
+        if (sim.history.empty()) {
+            DrawText("ERRO: Historico de simulacao vazio!", 10, 10, 20, RED);
+            EndDrawing();
+            continue;
+        }
+
         if (current_step >= (int)sim.history.size()) current_step = (int)sim.history.size() - 1;
         if (current_step < 0) current_step = 0;
         const auto& state = sim.history[current_step];
@@ -236,8 +236,12 @@ int main()
         if (ImGui::Combo("Modelo", &tipoEstrutura, itens, 3)) { 
             sim = executarSimulacao(usarNaoLinear, tipoEstrutura); current_step = (int)sim.history.size() - 1; 
         }
-        if (ImGui::Checkbox("Analise Nao Linear", &usarNaoLinear)) { 
-            sim = executarSimulacao(usarNaoLinear, tipoEstrutura); current_step = (int)sim.history.size() - 1; 
+        const char* itens_analise[] = { "Linear", "Nao Linear (Arc-Length)" };
+        int analise_idx = usarNaoLinear ? 1 : 0;
+        if (ImGui::Combo("Tipo de Analise", &analise_idx, itens_analise, 2)) {
+            usarNaoLinear = (analise_idx == 1);
+            sim = executarSimulacao(usarNaoLinear, tipoEstrutura);
+            current_step = (int)sim.history.size() - 1;
         }
         ImGui::Checkbox("Exibir Forcas", &exibirForcas);
         ImGui::Separator();

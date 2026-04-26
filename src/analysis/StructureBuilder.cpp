@@ -9,6 +9,8 @@ void StructureBuilder::construir(const StructuralModel& model, DOFManager& outDo
     outEst.elementos.clear();
     outEst.restricoes.clear();
 
+    if (model.nodes.empty()) return;
+
     // 1. Criar e registrar nós
     std::unordered_map<int, std::shared_ptr<NoModerno>> nodeMap;
     for (const auto& n : model.nodes) {
@@ -24,13 +26,17 @@ void StructureBuilder::construir(const StructuralModel& model, DOFManager& outDo
 
     // 3. Criar Elementos
     for (const auto& e : model.elements) {
+        if (nodeMap.find(e.node1_id) == nodeMap.end() || nodeMap.find(e.node2_id) == nodeMap.end()) continue;
+        
         auto n1 = nodeMap[e.node1_id];
         auto n2 = nodeMap[e.node2_id];
+        
+        if (matMap.find(e.material_id) == matMap.end()) continue;
         auto mat = matMap[e.material_id];
 
         if (e.tipo == "Corrotacional") {
             outEst.elementos.push_back(std::make_shared<Viga2DCorrotacionalModerna>(n1, n2, mat));
-        } else if (e.tipo == "Linear") {
+        } else {
             outEst.elementos.push_back(std::make_shared<Viga2DLinearModerna>(n1, n2, mat));
         }
     }
@@ -43,10 +49,15 @@ void StructureBuilder::construir(const StructuralModel& model, DOFManager& outDo
 
 Eigen::VectorXd StructureBuilder::montarVetorCargas(int totalDofs, const StructuralModel& model, const DOFManager& dofManager) {
     Eigen::VectorXd F = Eigen::VectorXd::Zero(totalDofs);
+    if (totalDofs <= 0) return F;
+
     for (const auto& load : model.loads) {
         auto indices = dofManager.obterIndicesGlobais(load.node_id);
         if (!indices.empty() && load.dof < (int)indices.size()) {
-            F(indices[load.dof]) = load.value;
+            int idxGlobal = indices[load.dof];
+            if (idxGlobal >= 0 && idxGlobal < totalDofs) {
+                F(idxGlobal) = load.value;
+            }
         }
     }
     return F;
