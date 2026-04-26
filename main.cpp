@@ -915,14 +915,37 @@ int main()
                 Vector2 d1 = WorldToScreen(x1_def + nx * val1, y1_def + ny * val1, (float)GetScreenWidth(), (float)GetScreenHeight());
                 Vector2 d2 = WorldToScreen(x2_def + nx * val2, y2_def + ny * val2, (float)GetScreenWidth(), (float)GetScreenHeight());
 
-                // Desenha o contorno do diagrama
-                DrawLineEx(p1, d1, 2.0f, corBorda);       
-                DrawLineEx(p2, d2, 2.0f, corBorda);       
-                DrawLineEx(d1, d2, 2.0f, corBorda);    
-                
-                // Preenchimento simples hachurado (ligando a base ao topo cruzado)
-                DrawLineEx(p1, d2, 1.0f, corPreench);
-                DrawLineEx(p2, d1, 1.0f, corPreench);
+                // Desenha o preenchimento e contorno do diagrama
+                auto DrawTriangleRobust = [](Vector2 v1, Vector2 v2, Vector2 v3, Color col) {
+                    DrawTriangle(v1, v2, v3, col);
+                    DrawTriangle(v1, v3, v2, col); // Desenha com ordem invertida para garantir visibilidade (culling)
+                };
+
+                if ((val1 > 0 && val2 < 0) || (val1 < 0 && val2 > 0)) {
+                    // Inversão de sinal: calcula o ponto onde o diagrama cruza a barra
+                    float t = (float)(std::abs(val1) / (std::abs(val1) + std::abs(val2)));
+                    Vector2 p_zero = { p1.x + t * (p2.x - p1.x), p1.y + t * (p2.y - p1.y) };
+
+                    // Triângulo 1 (nó 1 até o zero)
+                    DrawTriangleRobust(p1, d1, p_zero, corPreench);
+                    DrawLineEx(p1, d1, 2.0f, corBorda);
+                    DrawLineEx(d1, p_zero, 2.0f, corBorda);
+
+                    // Triângulo 2 (zero até o nó 2)
+                    DrawTriangleRobust(p_zero, d2, p2, corPreench);
+                    DrawLineEx(p_zero, d2, 2.0f, corBorda);
+                    DrawLineEx(d2, p2, 2.0f, corBorda);
+                } else {
+                    // Mesmo sinal ou um dos valores é zero: desenha como um trapézio (2 triângulos)
+                    DrawTriangleRobust(p1, d1, d2, corPreench);
+                    DrawTriangleRobust(p1, d2, p2, corPreench);
+
+                    // Contorno
+                    DrawLineEx(p1, d1, 2.0f, corBorda);
+                    DrawLineEx(d1, d2, 2.0f, corBorda);
+                    DrawLineEx(d2, p2, 2.0f, corBorda);
+                    // Linha da barra (opcional, já que a barra principal é desenhada)
+                }
             }
         }
 
