@@ -161,7 +161,19 @@ int main()
     while (!WindowShouldClose())
     {
         if (!ImGui::GetIO().WantCaptureMouse) {
-            // ... (pulei controle de camera para brevidade)
+            if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                Vector2 delta = GetMouseDelta();
+                delta = Vector2Scale(delta, -1.0f/camera.zoom);
+                camera.target = Vector2Add(camera.target, delta);
+            }
+            float wheel = GetMouseWheelMove();
+            if (wheel != 0) {
+                Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
+                camera.offset = GetMousePosition();
+                camera.target = mouseWorldPos;
+                camera.zoom += wheel * (camera.zoom * 0.1f);
+                if (camera.zoom < 0.1f) camera.zoom = 0.1f;
+            }
         }
 
         BeginDrawing();
