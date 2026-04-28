@@ -684,7 +684,7 @@ struct ArestaRender
 
 // --- FUNÇÕES DE CONFIGURAÇÃO DE MODELOS ---
 
-void SetupWilliams(Estrutura& est, std::vector<ArestaRender>& arestas, double& h_apex, int& dofApexY) {
+void SetupWilliams(Estrutura& est, std::vector<ArestaRender>& arestas, double& h_apex, int& dofApexY, int analiseTipo) {
     est = Estrutura();
     arestas.clear();
     PropriedadesMaterial mat = {1.0, 1.885e6, 9.274e3};
@@ -700,7 +700,9 @@ void SetupWilliams(Estrutura& est, std::vector<ArestaRender>& arestas, double& h
         dof_count += 3;
     }
     for (int i = 0; i < 10; ++i) {
-        auto viga = std::make_shared<Viga2DCorrotacional>(est.Nos[i], est.Nos[i + 1], mat);
+        std::shared_ptr<ElementoFinito> viga;
+        if (analiseTipo == 0) viga = std::make_shared<Viga2DLinear>(est.Nos[i], est.Nos[i+1], mat);
+        else viga = std::make_shared<Viga2DCorrotacional>(est.Nos[i], est.Nos[i + 1], mat);
         est.adicionarElemento(viga);
         arestas.push_back({i, i + 1});
     }
@@ -711,7 +713,7 @@ void SetupWilliams(Estrutura& est, std::vector<ArestaRender>& arestas, double& h
     dofApexY = 16;
 }
 
-void SetupPilarBiengastado(Estrutura& est, std::vector<ArestaRender>& arestas, double& h_apex, int& dofApexY) {
+void SetupPilarBiengastado(Estrutura& est, std::vector<ArestaRender>& arestas, double& h_apex, int& dofApexY, int analiseTipo) {
     est = Estrutura();
     arestas.clear();
     PropriedadesMaterial mat = {210e9, 0.01, 0.0001};
@@ -724,7 +726,9 @@ void SetupPilarBiengastado(Estrutura& est, std::vector<ArestaRender>& arestas, d
         dof_count += 3;
     }
     for (int i = 0; i < nElem; ++i) {
-        auto viga = std::make_shared<Viga2DCorrotacional>(est.Nos[i], est.Nos[i + 1], mat);
+        std::shared_ptr<ElementoFinito> viga;
+        if (analiseTipo == 0) viga = std::make_shared<Viga2DLinear>(est.Nos[i], est.Nos[i+1], mat);
+        else viga = std::make_shared<Viga2DCorrotacional>(est.Nos[i], est.Nos[i + 1], mat);
         est.adicionarElemento(viga);
         arestas.push_back({i, i + 1});
     }
@@ -735,7 +739,7 @@ void SetupPilarBiengastado(Estrutura& est, std::vector<ArestaRender>& arestas, d
     dofApexY = 6; // Deslocamento X no meio
 }
 
-void SetupVigaEngastada(Estrutura& est, std::vector<ArestaRender>& arestas, double& h_apex, int& dofApexY) {
+void SetupVigaEngastada(Estrutura& est, std::vector<ArestaRender>& arestas, double& h_apex, int& dofApexY, int analiseTipo) {
     est = Estrutura();
     arestas.clear();
     PropriedadesMaterial mat = {210e9, 0.01, 0.0001};
@@ -748,7 +752,9 @@ void SetupVigaEngastada(Estrutura& est, std::vector<ArestaRender>& arestas, doub
         dof_count += 3;
     }
     for (int i = 0; i < nElem; ++i) {
-        auto viga = std::make_shared<Viga2DCorrotacional>(est.Nos[i], est.Nos[i + 1], mat);
+        std::shared_ptr<ElementoFinito> viga;
+        if (analiseTipo == 0) viga = std::make_shared<Viga2DLinear>(est.Nos[i], est.Nos[i+1], mat);
+        else viga = std::make_shared<Viga2DCorrotacional>(est.Nos[i], est.Nos[i + 1], mat);
         est.adicionarElemento(viga);
         arestas.push_back({i, i + 1});
     }
@@ -759,7 +765,7 @@ void SetupVigaEngastada(Estrutura& est, std::vector<ArestaRender>& arestas, doub
     dofApexY = 13;
 }
 
-void SetupVigaBiapoiada(Estrutura& est, std::vector<ArestaRender>& arestas, double& h_apex, int& dofApexY) {
+void SetupVigaBiapoiada(Estrutura& est, std::vector<ArestaRender>& arestas, double& h_apex, int& dofApexY, int analiseTipo) {
     est = Estrutura();
     arestas.clear();
     PropriedadesMaterial mat = {210e9, 0.01, 0.0001};
@@ -772,7 +778,9 @@ void SetupVigaBiapoiada(Estrutura& est, std::vector<ArestaRender>& arestas, doub
         dof_count += 3;
     }
     for (int i = 0; i < nElem; ++i) {
-        auto viga = std::make_shared<Viga2DCorrotacional>(est.Nos[i], est.Nos[i + 1], mat);
+        std::shared_ptr<ElementoFinito> viga;
+        if (analiseTipo == 0) viga = std::make_shared<Viga2DLinear>(est.Nos[i], est.Nos[i+1], mat);
+        else viga = std::make_shared<Viga2DCorrotacional>(est.Nos[i], est.Nos[i + 1], mat);
         est.adicionarElemento(viga);
         arestas.push_back({i, i + 1});
     }
@@ -848,10 +856,10 @@ int main()
     float escalaDiagrama = 0.001f;
 
     auto ExecutarSimulacao = [&]() {
-        if (modeloSelecionado == 0) SetupWilliams(est, arestas, h_apex, dofApexY);
-        else if (modeloSelecionado == 1) SetupPilarBiengastado(est, arestas, h_apex, dofApexY);
-        else if (modeloSelecionado == 2) SetupVigaEngastada(est, arestas, h_apex, dofApexY);
-        else if (modeloSelecionado == 3) SetupVigaBiapoiada(est, arestas, h_apex, dofApexY);
+        if (modeloSelecionado == 0) SetupWilliams(est, arestas, h_apex, dofApexY, analiseSelecionada);
+        else if (modeloSelecionado == 1) SetupPilarBiengastado(est, arestas, h_apex, dofApexY, analiseSelecionada);
+        else if (modeloSelecionado == 2) SetupVigaEngastada(est, arestas, h_apex, dofApexY, analiseSelecionada);
+        else if (modeloSelecionado == 3) SetupVigaBiapoiada(est, arestas, h_apex, dofApexY, analiseSelecionada);
 
         if (analiseSelecionada == 0) {
             AnaliseLinear solver;
