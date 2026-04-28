@@ -411,6 +411,7 @@ struct Resultado
 {
     Eigen::VectorXd u;
     Eigen::VectorXd F;
+    Eigen::VectorXd reacoes; // Adicionado: Vetor de reações nos apoios
     double FatorCarga;
 };
 
@@ -428,34 +429,26 @@ public:
     {
         std::cout << "Iniciando solucao do sistema linear...\n";
 
-        // Construir a matriz global da estrutura
+        // Construir a matriz global original (sem BCs) para reações
         Eigen::VectorXd uZero = Eigen::VectorXd::Zero(est.NumGDLs);
-        Eigen::MatrixXd KGlobalEst = Construtor::montarMatrizRigidezGlobal(est, uZero);
+        Eigen::MatrixXd KGlobalOriginal = Construtor::montarMatrizRigidezGlobal(est, uZero);
+        Eigen::MatrixXd KGlobalEst = KGlobalOriginal;
 
         // Vetor de forças externas
         Eigen::VectorXd FGlobal = est.ForcasExternas;
-        std::cout << "Vetor de Forcas Externas (FGlobal):\n" << FGlobal << "\n";
 
         // Aplicar condições de contorno
         est.aplicarCondicoesContorno(KGlobalEst, FGlobal);
-        std::cout << "Vetor após aplicar condições de contorno (FGlobal):\n" << FGlobal << "\n";
 
         // Resolver o sistema
-        Eigen::LLT<Eigen::MatrixXd> llt(KGlobalEst);
-        Eigen::VectorXd uGlobal;
+        Eigen::VectorXd uGlobal = KGlobalEst.colPivHouseholderQr().solve(FGlobal);
 
-        if (llt.info() == Eigen::Success)
-        {
-            uGlobal = llt.solve(FGlobal);
-        }
-        else
-        {
-            std::cout << "-> Aviso: LLT falhou. Tentando HouseholderQR...\n";
-            uGlobal = KGlobalEst.colPivHouseholderQr().solve(FGlobal);
-        }
+        // Calcular Reações: R = K_original * u - F_nodal_externo
+        Eigen::VectorXd R = KGlobalOriginal * uGlobal - est.ForcasExternas;
 
         Resultado resultado;
         resultado.u = uGlobal;
+        resultado.reacoes = R;
         resultado.FatorCarga = 1.0;
 
         return {resultado};
@@ -479,62 +472,38 @@ public:
         std::vector<Resultado> historico;
 
         Eigen::VectorXd uAtual = Eigen::VectorXd::Zero(est.NumGDLs);
-        historico.push_back({uAtual, Eigen::VectorXd::Zero(est.NumGDLs), 0.0});
+        historico.push_back({uAtual, Eigen::VectorXd::Zero(est.NumGDLs), Eigen::VectorXd::Zero(est.NumGDLs), 0.0});
 
         // Loop incremental
         for (int passo = 1; passo <= numPassos; ++passo)
         {
-            // Cálculo do fator de carga
             double lambda = (double)passo / numPassos;
             Eigen::VectorXd PassoCarga = lambda * est.ForcasExternas;
 
             int iter = 0;
             double erro = 1.0;
 
-            // Loop iterativo
             while (iter < maxIter)
             {
-                // Coletar matriz tangente e forças internas
                 Eigen::MatrixXd KTangente = Construtor::montarMatrizRigidezGlobal(est, uAtual);
-                Eigen::MatrixXd Fint = Construtor::montarForcasInternasGlobais(est, uAtual);
-
-                // Calcular vetor de forças residuais
+                Eigen::VectorXd Fint = Construtor::montarForcasInternasGlobais(est, uAtual);
                 Eigen::VectorXd g = PassoCarga - Fint;
 
-                // Zerar o resíduo nos graus de liberdade fixos
-                for (int dof : est.NosFixos)
-                    g(dof) = 0.0;
-                
-                
-                // Critérios de parada
+                for (int dof : est.NosFixos) g(dof) = 0.0;
                 erro = g.norm();
-
                 if (erro < tol) break;
 
-                // Aplicar condições de contorno
                 est.aplicarCondicoesContorno(KTangente, g);
-
-                // Resolver o sistema 
                 Eigen::VectorXd deltaU = KTangente.ldlt().solve(g);
-
-                // Atualizar deslocamentos 
                 uAtual += deltaU;
                 iter++;
             }
 
-            if (iter > maxIter) 
-            {
-                std::cout << "AVISO: Passo " << passo << " nao convergiu!\n";
-            }
-            else
-            {
-                std::cout << "Passo " << passo << " (Lambda=" << lambda
-                          << ") convergiu em " << iter << " iteracoes. Erro final: " << erro << "\n";
-            }
+            Eigen::VectorXd FintFinal = Construtor::montarForcasInternasGlobais(est, uAtual);
+            Eigen::VectorXd R = FintFinal - PassoCarga;
 
-            historico.push_back(Resultado{uAtual, PassoCarga, lambda});
+            historico.push_back(Resultado{uAtual, PassoCarga, R, lambda});
         }
-
         return historico;
     }
 };
@@ -564,116 +533,73 @@ public:
     std::vector<Resultado> executar(Estrutura& est) override
     {
         std::cout << "--- Iniciando Solver Arc-Length ---\n";
-
         std::vector<Resultado> historico;
-
         Eigen::VectorXd uAtual = Eigen::VectorXd::Zero(est.NumGDLs);
         Eigen::VectorXd DELTAU = Eigen::VectorXd::Zero(est.NumGDLs);
-
         double lambda = 0.0;
         double deltal = deltal0;
 
-        historico.push_back({uAtual, Eigen::VectorXd::Zero(est.NumGDLs), 0.0});
+        historico.push_back({uAtual, Eigen::VectorXd::Zero(est.NumGDLs), Eigen::VectorXd::Zero(est.NumGDLs), 0.0});
 
         for (int passo = 1; passo <= numPassos; ++passo)
         {
-            // =========================
-            // PREDITOR
-            // =========================
             Eigen::MatrixXd Kt = Construtor::montarMatrizRigidezGlobal(est, uAtual);
             Eigen::VectorXd dummy = Eigen::VectorXd::Zero(est.NumGDLs);
             est.aplicarCondicoesContorno(Kt, dummy);
-
             Eigen::VectorXd deltaUr = Kt.colPivHouseholderQr().solve(est.ForcasExternas);
 
             double normDur = deltaUr.norm();
             if (normDur < 1e-12) normDur = 1e-12;
-
             double DeltaLambda = deltal / normDur;
-
-            if (passo > 1)
-            {
-                if (DELTAU.dot(deltaUr) < 0.0)
-                    DeltaLambda = -DeltaLambda;
-            }
+            if (passo > 1 && DELTAU.dot(deltaUr) < 0.0) DeltaLambda = -DeltaLambda;
 
             Eigen::VectorXd deltaU = DeltaLambda * deltaUr;
             Eigen::VectorXd DELTAU0 = deltaU;
             DELTAU = deltaU;
-
             double lambdaTentativo = lambda + DeltaLambda;
 
-            // =========================
-            // CORRETOR
-            // =========================
             int iter = 0;
-            double erro = 1.0;
-
             while (iter < maxIter)
             {
-                Eigen::VectorXd Fint =
-                    Construtor::montarForcasInternasGlobais(est, uAtual + DELTAU);
-
+                Eigen::VectorXd Fint = Construtor::montarForcasInternasGlobais(est, uAtual + DELTAU);
                 Eigen::VectorXd g = lambdaTentativo * est.ForcasExternas - Fint;
-
-                for (int dof : est.NosFixos)
-                    g(dof) = 0.0;
-
-                erro = g.norm();
-                if (erro <= tol)
-                    break;
+                for (int dof : est.NosFixos) g(dof) = 0.0;
+                if (g.norm() <= tol) break;
 
                 Kt = Construtor::montarMatrizRigidezGlobal(est, uAtual + DELTAU);
                 est.aplicarCondicoesContorno(Kt, dummy);
-
                 Eigen::VectorXd deltaUg = Kt.colPivHouseholderQr().solve(g);
                 deltaUr = Kt.colPivHouseholderQr().solve(est.ForcasExternas);
 
                 double topo = DELTAU0.dot(deltaUg);
                 double base = DELTAU0.dot(deltaUr);
-
                 double dlambda = (std::abs(base) < 1e-12) ? 0.0 : -topo / base;
 
                 DELTAU += deltaUg + dlambda * deltaUr;
                 DeltaLambda += dlambda;
                 lambdaTentativo = lambda + DeltaLambda;
-
                 iter++;
             }
 
-            if (iter >= maxIter)
-            {
-                std::cout << "AVISO: passo " << passo << " nao convergiu. Erro final = "
-                          << erro << "\n";
-            }
-            else
-            {
-                std::cout << "Passo " << passo
-                          << " convergiu em " << iter
-                          << " iteracoes. Lambda = " << lambdaTentativo
-                          << " | Erro = " << erro << "\n";
-            }
-
-            // Aceita o passo
             uAtual += DELTAU;
             lambda = lambdaTentativo;
+            if (iter > 0) deltal = deltal0 * std::sqrt(Nd / static_cast<double>(iter));
 
-            if (iter > 0)
-                deltal = deltal0 * std::sqrt(Nd / static_cast<double>(iter));
-
-            historico.push_back({uAtual, lambda * est.ForcasExternas, lambda});
+            Eigen::VectorXd FintFinal = Construtor::montarForcasInternasGlobais(est, uAtual);
+            Eigen::VectorXd R = FintFinal - (lambda * est.ForcasExternas);
+            historico.push_back({uAtual, lambda * est.ForcasExternas, R, lambda});
         }
-
         return historico;
     }
 };
 
 struct ResultadoPassoUI
 {
-    Eigen::VectorXd udesl;   // deslocamentos globais completos
-    double lambda;           // fator de carga
-    double u_apex;           // deslocamento normalizado v/h
-    double f_apex;           // força equivalente no gráfico
+    Eigen::VectorXd udesl;   
+    Eigen::VectorXd reacoes; // Adicionado: Reações para UI
+    double lambda;           
+    double u_apex;           
+    double f_apex;           
 };
 
 struct ArestaRender
@@ -854,6 +780,8 @@ int main()
     int max_steps = 0;
     int tipoDiagrama = 0; 
     float escalaDiagrama = 0.001f;
+    bool mostrarReacoes = false;
+    float escalaReacoes = 0.001f;
 
     auto ExecutarSimulacao = [&]() {
         if (modeloSelecionado == 0) SetupWilliams(est, arestas, h_apex, dofApexY, analiseSelecionada);
@@ -864,9 +792,8 @@ int main()
         if (analiseSelecionada == 0) {
             AnaliseLinear solver;
             history = solver.executar(est);
-            // Adiciona ponto zero para o gráfico linear
             std::vector<Resultado> h_lin;
-            h_lin.push_back({Eigen::VectorXd::Zero(est.NumGDLs), Eigen::VectorXd::Zero(est.NumGDLs), 0.0});
+            h_lin.push_back({Eigen::VectorXd::Zero(est.NumGDLs), Eigen::VectorXd::Zero(est.NumGDLs), Eigen::VectorXd::Zero(est.NumGDLs), 0.0});
             h_lin.push_back(history[0]);
             history = h_lin;
         } else {
@@ -879,7 +806,16 @@ int main()
             }
         }
 
-        historyUI = prepararHistoricoUI(history, dofApexY, h_apex);
+        historyUI.clear();
+        for (const auto& step : history) {
+            ResultadoPassoUI s;
+            s.udesl = step.u;
+            s.reacoes = step.reacoes;
+            s.lambda = step.FatorCarga;
+            s.u_apex = std::abs(step.u(dofApexY)) / h_apex;
+            s.f_apex = std::abs(step.FatorCarga);
+            historyUI.push_back(s);
+        }
         plot_u.clear(); plot_f.clear();
         for (const auto& step : historyUI) {
             plot_u.push_back(step.u_apex);
@@ -940,6 +876,39 @@ int main()
                 }
             }
 
+            // Desenho das Reações de Apoio
+            if (mostrarReacoes) {
+                for (const auto& no : est.Nos) {
+                    double rx = state.reacoes(no->gdlGlobais[0]);
+                    double ry = state.reacoes(no->gdlGlobais[1]);
+                    double mz = state.reacoes(no->gdlGlobais[2]);
+
+                    if (std::abs(rx) > 1e-4 || std::abs(ry) > 1e-4) {
+                        Vector2 pNode = WorldToScreen(no->x + state.udesl(no->gdlGlobais[0]), 
+                                                      no->y + state.udesl(no->gdlGlobais[1]), 
+                                                      (float)GetScreenWidth(), (float)GetScreenHeight());
+                        
+                        float vx = (float)rx;
+                        float vy = (float)(-ry); 
+                        float mag = sqrtf(vx*vx + vy*vy);
+                        vx /= mag; vy /= mag;
+
+                        float arrowLen = 40.0f;
+                        Vector2 pStart = { pNode.x - vx * arrowLen, pNode.y - vy * arrowLen };
+                        DrawArrow(pStart, pNode, 2.5f, MAGENTA);
+                        DrawText(TextFormat("R:%.1f", mag), (int)pStart.x + 5, (int)pStart.y + 5, 15, MAGENTA);
+                    }
+                    
+                    if (std::abs(mz) > 1e-4) {
+                         Vector2 pNode = WorldToScreen(no->x + state.udesl(no->gdlGlobais[0]), 
+                                                      no->y + state.udesl(no->gdlGlobais[1]), 
+                                                      (float)GetScreenWidth(), (float)GetScreenHeight());
+                         DrawCircleLines((int)pNode.x, (int)pNode.y, 15.0f, MAGENTA);
+                         DrawText(TextFormat("M:%.1f", mz), (int)pNode.x - 20, (int)pNode.y + 20, 15, MAGENTA);
+                    }
+                }
+            }
+
             // Diagramas
             if (tipoDiagrama != 0) {
                 for (size_t i = 0; i < arestas.size(); ++i) {
@@ -989,8 +958,12 @@ int main()
         ImGui::RadioButton("N", &tipoDiagrama, 1); ImGui::SameLine();
         ImGui::RadioButton("V", &tipoDiagrama, 2); ImGui::SameLine();
         ImGui::RadioButton("M", &tipoDiagrama, 3);
-        if (tipoDiagrama != 0) ImGui::SliderFloat("Escala", &escalaDiagrama, 0.00001f, 0.01f, "%.5f");
+        if (tipoDiagrama != 0) ImGui::SliderFloat("Escala Diag.", &escalaDiagrama, 0.00001f, 0.01f, "%.5f");
         
+        ImGui::Separator();
+        ImGui::Checkbox("Mostrar Reações de Apoio", &mostrarReacoes);
+        if (mostrarReacoes) ImGui::SliderFloat("Escala Reações", &escalaReacoes, 0.00001f, 0.01f, "%.5f");
+
         ImGui::End();
 
         ImGui::SetNextWindowPos(ImVec2((float)GetScreenWidth() - 520, 10), ImGuiCond_Once);
