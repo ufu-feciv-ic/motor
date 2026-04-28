@@ -1,0 +1,8 @@
+*.exe
+*.o
+*.d
+obj/
+build/
+.vscode/
+*.dll
+*.ini
