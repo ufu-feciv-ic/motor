@@ -804,6 +804,24 @@ std::vector<ResultadoPassoUI> prepararHistoricoUI(
     return out;
 }
 
+void DrawArrow(Vector2 start, Vector2 end, float thickness, Color color) {
+    float dx = end.x - start.x;
+    float dy = end.y - start.y;
+    float length = sqrtf(dx*dx + dy*dy);
+    if (length < 0.1f) return;
+
+    DrawLineEx(start, end, thickness, color);
+    
+    float angle = atan2f(dy, dx);
+    float headLen = 15.0f;
+    float headAngle = 0.4f; 
+    
+    Vector2 p1 = { end.x - headLen * cosf(angle - headAngle), end.y - headLen * sinf(angle - headAngle) };
+    Vector2 p2 = { end.x - headLen * cosf(angle + headAngle), end.y - headLen * sinf(angle + headAngle) };
+    
+    DrawTriangle(end, p1, p2, color);
+}
+
 Vector2 WorldToScreen(double x, double y, float screenW, float screenH) {
     float scale = 30.0f; 
     float offsetX = screenW * 0.2f;
@@ -890,6 +908,28 @@ int main()
                 DrawLineEx(p1, p2, 3.0f, SKYBLUE);
                 DrawCircleV(p1, 4.0f, WHITE);
                 DrawCircleV(p2, 4.0f, WHITE);
+            }
+
+            // Desenho das Forças Externas
+            for (const auto& no : est.Nos) {
+                double fx = est.ForcasExternas(no->gdlGlobais[0]) * state.lambda;
+                double fy = est.ForcasExternas(no->gdlGlobais[1]) * state.lambda;
+
+                if (std::abs(fx) > 1e-6 || std::abs(fy) > 1e-6) {
+                    Vector2 pNode = WorldToScreen(no->x + state.udesl(no->gdlGlobais[0]), 
+                                                  no->y + state.udesl(no->gdlGlobais[1]), 
+                                                  (float)GetScreenWidth(), (float)GetScreenHeight());
+                    
+                    float vx = (float)fx;
+                    float vy = (float)(-fy); // Y invertido para tela
+                    float mag = sqrtf(vx*vx + vy*vy);
+                    vx /= mag; vy /= mag;
+
+                    float arrowLen = 50.0f;
+                    Vector2 pStart = { pNode.x - vx * arrowLen, pNode.y - vy * arrowLen };
+                    DrawArrow(pStart, pNode, 3.0f, RED);
+                    DrawText(TextFormat("%.2f", std::sqrt(fx*fx + fy*fy)), (int)pStart.x - 10, (int)pStart.y - 20, 18, YELLOW);
+                }
             }
 
             // Diagramas
@@ -1188,7 +1228,6 @@ int main()
 
     // std::cout << "Matriz de rigidez global do elemento:\n" << KGlobal << "\n";
     // std::cout << KGlobal << std::endl;
-}
 
 
 // #define _USE_MATH_DEFINES
