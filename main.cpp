@@ -170,9 +170,10 @@ void SetupPilarEngastado(Estrutura& est, std::vector<ArestaRender>& arestas, dou
 void SetupVigaDistribuida(Estrutura& est, std::vector<ArestaRender>& arestas, double& h_apex, int& dofApexY, int analiseTipo) {
     est = Estrutura();
     arestas.clear();
-    PropriedadesMaterial mat = {210e9, 0.01, 0.0001};
+    // Material muito mais flexível para evidenciar a não-linearidade geométrica
+    PropriedadesMaterial mat = {2.0e8, 0.01, 1.0e-4}; 
     double L = 10.0;
-    int nElem = 10;
+    int nElem = 20; // Mais elementos para suavidade na deformada
     int dof_count = 0;
     for (int i = 0; i <= nElem; ++i) {
         auto no = std::make_shared<No>(i, (L / nElem) * i, 0.0, std::vector<int>{dof_count, dof_count + 1, dof_count + 2});
@@ -184,16 +185,18 @@ void SetupVigaDistribuida(Estrutura& est, std::vector<ArestaRender>& arestas, do
         if (analiseTipo == 0) viga = std::make_shared<Viga2DLinear>(est.Nos[i], est.Nos[i+1], mat);
         else viga = std::make_shared<Viga2DCorrotacional>(est.Nos[i], est.Nos[i + 1], mat);
         
-        // Aplicando carga distribuída transversal de 1000 N/m
-        viga->setCargaDistribuida(0.0, -1000.0);
+        // Aplicando carga distribuída transversal de 100 N/m
+        viga->setCargaDistribuida(0.0, -100.0);
         
         est.adicionarElemento(viga);
         arestas.push_back({i, i + 1});
     }
-    // Bi-apoiada (Pinned-Roller): No 0 fixo em X e Y, Ultimo No fixo em Y
+    // Bi-articulada (Pinned-Pinned): No 0 e último No fixos em X e Y
+    // Isso gera o efeito de "catenária" (endurecimento por tração axial), que é fortemente não-linear.
     est.NosFixos = {
         est.Nos.front()->gdlGlobais[0], 
         est.Nos.front()->gdlGlobais[1], 
+        est.Nos.back()->gdlGlobais[0],
         est.Nos.back()->gdlGlobais[1]
     };
     est.ForcasExternas = Eigen::VectorXd::Zero(est.NumGDLs);
@@ -277,6 +280,10 @@ int main()
         } else {
             if (modeloSelecionado == 0) {
                 AnaliseNaoLinearCompArco solver(33, 50, 1e-6, 0.025, 5.0);
+                history = solver.executar(est);
+            } else if (modeloSelecionado == 5) {
+                // Para a viga distribuída, usamos passos menores para capturar a curva de endurecimento (catenária)
+                AnaliseNaoLinearCompArco solver(60, 50, 1e-6, 0.02, 5.0); 
                 history = solver.executar(est);
             } else {
                 AnaliseNaoLinearCompArco solver(30, 50, 1e-6, 0.2, 5.0);
