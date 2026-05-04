@@ -365,35 +365,22 @@ rwildcard=$(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2) $(filter $(subst 
 
 # Define all source files required
 SRC_DIR = src
+ENGINE_DIR = src/Engine
 OBJ_DIR = obj
 
-# Define all object files from source files
-SRC = $(call rwildcard, *.c, *.h)
-#OBJS = $(SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
-OBJS ?= main.cpp
-
-# For Android platform we call a custom Makefile.Android
-ifeq ($(PLATFORM),PLATFORM_ANDROID)
-    MAKEFILE_PARAMS = -f Makefile.Android 
-    export PROJECT_NAME
-    export SRC_DIR
-else
-    MAKEFILE_PARAMS = $(PROJECT_NAME)
-endif
+# Find all .cpp files in current directory and ENGINE_DIR
+SOURCES = $(wildcard *.cpp) $(wildcard $(ENGINE_DIR)/*.cpp)
+OBJS = $(SOURCES:.cpp=.o)
 
 # Default target entry
-# NOTE: We call this Makefile target or Makefile.Android target
-all:
-	$(MAKE) $(MAKEFILE_PARAMS)
+all: $(PROJECT_NAME)
 
 # Project target defined by PROJECT_NAME
 $(PROJECT_NAME): $(OBJS)
 	$(CC) -o $(PROJECT_NAME)$(EXT) $(OBJS) $(CFLAGS) $(INCLUDE_PATHS) $(LDFLAGS) $(LDLIBS) -D$(PLATFORM)
 
 # Compile source files
-# NOTE: This pattern will compile every module defined on $(OBJS)
-#%.o: %.c
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+%.o: %.cpp
 	$(CC) -c $< -o $@ $(CFLAGS) $(INCLUDE_PATHS) -D$(PLATFORM)
 
 # Clean everything
