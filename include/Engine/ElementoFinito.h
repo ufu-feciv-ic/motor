@@ -10,13 +10,16 @@ namespace Engine {
 
 class ElementoFinito {
 public:
+    CargaDistribuida carga = {0.0, 0.0};
     virtual ~ElementoFinito() = default;
     virtual std::vector<int> getGDLsGlobais() const = 0;
     virtual Eigen::MatrixXd getMatrizRigidezGlobal(const Eigen::VectorXd& uGlobal) const = 0;
     virtual Eigen::VectorXd getForcasInternasGlobais(const Eigen::VectorXd& uGlobal) const = 0;
     virtual EsforcosLocais getEsforcosLocais(const Eigen::VectorXd& uGlobal) const = 0;
     virtual Eigen::MatrixXd getMatrizRigidezGeometrica(double N) const = 0;
+    virtual Eigen::VectorXd getForcasEquivalentes() const = 0;
     virtual void atualizarGeometria() = 0;
+    void setCargaDistribuida(double qx, double qy) { carga = {qx, qy}; }
 };
 
 class Viga2DLinear : public ElementoFinito {
@@ -33,6 +36,7 @@ public:
     Eigen::VectorXd getForcasInternasGlobais(const Eigen::VectorXd& uGlobal) const override;
     EsforcosLocais getEsforcosLocais(const Eigen::VectorXd& uGlobal) const override;
     Eigen::MatrixXd getMatrizRigidezGeometrica(double N) const override;
+    Eigen::VectorXd getForcasEquivalentes() const override;
 
 private:
     Eigen::MatrixXd calcularkLocal() const;
@@ -53,6 +57,7 @@ public:
     Eigen::VectorXd getForcasInternasGlobais(const Eigen::VectorXd& uGlobal) const override;
     EsforcosLocais getEsforcosLocais(const Eigen::VectorXd& uGlobal) const override;
     Eigen::MatrixXd getMatrizRigidezGeometrica(double N) const override;
+    Eigen::VectorXd getForcasEquivalentes() const override;
 };
 
 } // namespace Engine

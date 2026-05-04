@@ -86,4 +86,19 @@ Eigen::MatrixXd Construtor::montarMatrizRigidezGeometricaGlobal(const Estrutura&
     return KGGlobalEst;
 }
 
+Eigen::VectorXd Construtor::montarVetorForcasReferencia(const Estrutura& est) {
+    Eigen::VectorXd FRef = est.ForcasExternas;
+
+    for (const auto& elemento : est.Elementos) {
+        Eigen::VectorXd fEquiv = elemento->getForcasEquivalentes();
+        std::vector<int> GDLs = elemento->getGDLsGlobais();
+
+        for (size_t i = 0; i < GDLs.size(); ++i) {
+            FRef(GDLs[i]) += fEquiv(i);
+        }
+    }
+
+    return FRef;
+}
+
 } // namespace Engine

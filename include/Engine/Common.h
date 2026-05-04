@@ -16,6 +16,11 @@ struct PropriedadesMaterial {
     double I;
 };
 
+struct CargaDistribuida {
+    double qx; // Carga axial (local x)
+    double qy; // Carga transversal (local y)
+};
+
 struct EsforcosLocais {
     double N;  // Força normal
     double V;  // força cortante

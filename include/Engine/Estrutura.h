@@ -27,6 +27,7 @@ public:
     static Eigen::MatrixXd montarMatrizRigidezGlobal(const Estrutura& est, const Eigen::VectorXd& uGlobal);
     static Eigen::VectorXd montarForcasInternasGlobais(const Estrutura& est, const Eigen::VectorXd& uGlobal);
     static Eigen::MatrixXd montarMatrizRigidezGeometricaGlobal(const Estrutura& est, const Eigen::VectorXd& esforcosNormais);
+    static Eigen::VectorXd montarVetorForcasReferencia(const Estrutura& est);
 };
 
 } // namespace Engine

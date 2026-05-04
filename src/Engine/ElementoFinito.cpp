@@ -114,6 +114,19 @@ Eigen::MatrixXd Viga2DLinear::getMatrizRigidezGeometrica(double N) const {
     return T.transpose() * kgLocal * T;
 }
 
+Eigen::VectorXd Viga2DLinear::getForcasEquivalentes() const {
+    double L = Linicial;
+    double qx = carga.qx;
+    double qy = carga.qy;
+
+    Eigen::VectorXd fLocal = Eigen::VectorXd::Zero(6);
+    fLocal << qx * L / 2.0, qy * L / 2.0, qy * L * L / 12.0,
+              qx * L / 2.0, qy * L / 2.0, -qy * L * L / 12.0;
+
+    Eigen::MatrixXd T = calcularTransformacao();
+    return T.transpose() * fLocal;
+}
+
 // --- Viga2DCorrotacional ---
 
 Viga2DCorrotacional::Viga2DCorrotacional(std::shared_ptr<No> no1, std::shared_ptr<No> no2, PropriedadesMaterial m)
@@ -281,6 +294,32 @@ Eigen::MatrixXd Viga2DCorrotacional::getMatrizRigidezGeometrica(double N) const 
         0,  0, 0, 0, 0, 1;
 
     return T.transpose() * kgLocal * T;
+}
+
+Eigen::VectorXd Viga2DCorrotacional::getForcasEquivalentes() const {
+    double L = L0;
+    double qx = carga.qx;
+    double qy = carga.qy;
+
+    Eigen::VectorXd fLocal = Eigen::VectorXd::Zero(6);
+    fLocal << qx * L / 2.0, qy * L / 2.0, qy * L * L / 12.0,
+              qx * L / 2.0, qy * L / 2.0, -qy * L * L / 12.0;
+
+    double dx = n2->x - n1->x;
+    double dy = n2->y - n1->y;
+    double C = dx / L;
+    double S = dy / L;
+
+    Eigen::MatrixXd T = Eigen::MatrixXd::Zero(6, 6);
+    T << 
+        C,  S, 0, 0, 0, 0,
+       -S,  C, 0, 0, 0, 0,
+        0,  0, 1, 0, 0, 0,
+        0,  0, 0, C, S, 0,
+        0,  0, 0,-S, C, 0,
+        0,  0, 0, 0, 0, 1;
+
+    return T.transpose() * fLocal;
 }
 
 } // namespace Engine

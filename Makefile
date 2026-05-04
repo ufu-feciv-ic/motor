@@ -250,7 +250,7 @@ endif
 
 # Define include paths for required headers
 # NOTE: Several external required libraries (stb and others)
-INCLUDE_PATHS = -I. -I$(RAYLIB_PATH)/src -I$(RAYLIB_PATH)/src/external -I./include
+INCLUDE_PATHS = -I. -I$(RAYLIB_PATH)/src -I$(RAYLIB_PATH)/src/external -I./include -I./include/Engine -I./src/Engine
 ifneq ($(wildcard /opt/homebrew/include/.*),)
     INCLUDE_PATHS += -I/opt/homebrew/include
 endif
@@ -364,12 +364,7 @@ endif
 rwildcard=$(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2) $(filter $(subst *,%,$2),$d))
 
 # Define all source files required
-SRC_DIR = src
-ENGINE_DIR = src/Engine
-OBJ_DIR = obj
-
-# Find all .cpp files in current directory and ENGINE_DIR
-SOURCES = $(wildcard *.cpp) $(wildcard $(ENGINE_DIR)/*.cpp)
+SOURCES = $(wildcard *.cpp) $(call rwildcard, src/, *.cpp)
 OBJS = $(SOURCES:.cpp=.o)
 
 # Default target entry

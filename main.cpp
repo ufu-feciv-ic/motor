@@ -167,6 +167,40 @@ void SetupPilarEngastado(Estrutura& est, std::vector<ArestaRender>& arestas, dou
     dofApexY = nElem * 3; // Deslocamento X no topo para monitorar flambagem
 }
 
+void SetupVigaDistribuida(Estrutura& est, std::vector<ArestaRender>& arestas, double& h_apex, int& dofApexY, int analiseTipo) {
+    est = Estrutura();
+    arestas.clear();
+    PropriedadesMaterial mat = {210e9, 0.01, 0.0001};
+    double L = 10.0;
+    int nElem = 10;
+    int dof_count = 0;
+    for (int i = 0; i <= nElem; ++i) {
+        auto no = std::make_shared<No>(i, (L / nElem) * i, 0.0, std::vector<int>{dof_count, dof_count + 1, dof_count + 2});
+        est.adicionarNo(no);
+        dof_count += 3;
+    }
+    for (int i = 0; i < nElem; ++i) {
+        std::shared_ptr<ElementoFinito> viga;
+        if (analiseTipo == 0) viga = std::make_shared<Viga2DLinear>(est.Nos[i], est.Nos[i+1], mat);
+        else viga = std::make_shared<Viga2DCorrotacional>(est.Nos[i], est.Nos[i + 1], mat);
+        
+        // Aplicando carga distribuída transversal de 1000 N/m
+        viga->setCargaDistribuida(0.0, -1000.0);
+        
+        est.adicionarElemento(viga);
+        arestas.push_back({i, i + 1});
+    }
+    // Bi-apoiada (Pinned-Roller): No 0 fixo em X e Y, Ultimo No fixo em Y
+    est.NosFixos = {
+        est.Nos.front()->gdlGlobais[0], 
+        est.Nos.front()->gdlGlobais[1], 
+        est.Nos.back()->gdlGlobais[1]
+    };
+    est.ForcasExternas = Eigen::VectorXd::Zero(est.NumGDLs);
+    h_apex = 1.0;
+    dofApexY = est.Nos[nElem / 2]->gdlGlobais[1]; // Centro da viga
+}
+
 void DrawArrow(Vector2 start, Vector2 end, float thickness, Color color) {
     float dx = end.x - start.x;
     float dy = end.y - start.y;
@@ -224,6 +258,7 @@ int main()
         else if (modeloSelecionado == 2) SetupVigaEngastada(est, arestas, h_apex, dofApexY, analiseSelecionada);
         else if (modeloSelecionado == 3) SetupVigaBiapoiada(est, arestas, h_apex, dofApexY, analiseSelecionada);
         else if (modeloSelecionado == 4) SetupPilarEngastado(est, arestas, h_apex, dofApexY, analiseSelecionada);
+        else if (modeloSelecionado == 5) SetupVigaDistribuida(est, arestas, h_apex, dofApexY, analiseSelecionada);
 
         modosBuckling = AnaliseBuckling::executar(est);
 
@@ -293,6 +328,47 @@ int main()
                 DrawLineEx(p1, p2, 3.0f, SKYBLUE);
                 DrawCircleV(p1, 4.0f, WHITE);
                 DrawCircleV(p2, 4.0f, WHITE);
+            }
+
+            // Desenhar Cargas Distribuídas
+            for (size_t i = 0; i < arestas.size(); ++i) {
+                const auto& elem = est.Elementos[i];
+                if (std::abs(elem->carga.qx) > 1e-6 || std::abs(elem->carga.qy) > 1e-6) {
+                    const auto& e = arestas[i];
+                    const auto& n1 = est.Nos[e.n1];
+                    const auto& n2 = est.Nos[e.n2];
+                    
+                    Vector2 p1 = WorldToScreen(n1->x + state.udesl(n1->gdlGlobais[0]), n1->y + state.udesl(n1->gdlGlobais[1]), (float)GetScreenWidth(), (float)GetScreenHeight());
+                    Vector2 p2 = WorldToScreen(n2->x + state.udesl(n2->gdlGlobais[0]), n2->y + state.udesl(n2->gdlGlobais[1]), (float)GetScreenWidth(), (float)GetScreenHeight());
+                    
+                    double dx = (n2->x + state.udesl(n2->gdlGlobais[0])) - (n1->x + state.udesl(n1->gdlGlobais[0]));
+                    double dy = (n2->y + state.udesl(n2->gdlGlobais[1])) - (n1->y + state.udesl(n1->gdlGlobais[1]));
+                    double L = std::hypot(dx, dy);
+                    if (L < 1e-6) L = 1e-6;
+                    double nx = -dy / L;
+                    double ny = dx / L;
+                    double tx = dx / L;
+                    double ty = dy / L;
+
+                    int numArrows = 3;
+                    for (int j = 0; j <= numArrows; ++j) {
+                        float t = (float)j / (float)numArrows;
+                        Vector2 p = { p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t };
+                        
+                        double loadX = (elem->carga.qx * tx + elem->carga.qy * nx) * state.lambda;
+                        double loadY = (elem->carga.qx * ty + elem->carga.qy * ny) * state.lambda;
+                        
+                        float vx = (float)loadX;
+                        float vy = (float)(-loadY);
+                        float mag = sqrtf(vx*vx + vy*vy);
+                        if (mag < 1e-6) continue;
+                        vx /= mag; vy /= mag;
+
+                        float arrowLen = 30.0f;
+                        Vector2 pStart = { p.x - vx * arrowLen, p.y - vy * arrowLen };
+                        DrawArrow(pStart, p, 2.0f, ORANGE);
+                    }
+                }
             }
 
             for (const auto& no : est.Nos) {
@@ -381,6 +457,7 @@ int main()
         ImGui::RadioButton("Pilar Engastado", &modeloSelecionado, 4);
         ImGui::RadioButton("Viga Engastada", &modeloSelecionado, 2);
         ImGui::RadioButton("Viga Bi-apoiada", &modeloSelecionado, 3);
+        ImGui::RadioButton("Viga Carga Distr.", &modeloSelecionado, 5);
         
         ImGui::Separator();
         ImGui::Text("Tipo de Análise:");

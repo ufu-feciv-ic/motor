@@ -11,7 +11,7 @@ std::vector<AnaliseBuckling::ModoBuckling> AnaliseBuckling::executar(Estrutura& 
 
     Eigen::VectorXd uZero = Eigen::VectorXd::Zero(est.NumGDLs);
     Eigen::MatrixXd K = Construtor::montarMatrizRigidezGlobal(est, uZero);
-    Eigen::VectorXd F = est.ForcasExternas;
+    Eigen::VectorXd F = Construtor::montarVetorForcasReferencia(est);
     
     Eigen::MatrixXd K_solver = K;
     Eigen::VectorXd F_solver = F;
@@ -70,11 +70,12 @@ std::vector<Resultado> AnaliseLinear::executar(Estrutura& est) {
     Eigen::VectorXd uZero = Eigen::VectorXd::Zero(est.NumGDLs);
     Eigen::MatrixXd KGlobalOriginal = Construtor::montarMatrizRigidezGlobal(est, uZero);
     Eigen::MatrixXd KGlobalEst = KGlobalOriginal;
-    Eigen::VectorXd FGlobal = est.ForcasExternas;
+    Eigen::VectorXd FRef = Construtor::montarVetorForcasReferencia(est);
+    Eigen::VectorXd FGlobal = FRef;
 
     est.aplicarCondicoesContorno(KGlobalEst, FGlobal);
     Eigen::VectorXd uGlobal = KGlobalEst.colPivHouseholderQr().solve(FGlobal);
-    Eigen::VectorXd R = KGlobalOriginal * uGlobal - est.ForcasExternas;
+    Eigen::VectorXd R = KGlobalOriginal * uGlobal - FRef;
 
     Resultado resultado;
     resultado.u = uGlobal;
@@ -96,9 +97,11 @@ std::vector<Resultado> AnaliseNaoLinearNR::executar(Estrutura& est) {
     Eigen::VectorXd uAtual = Eigen::VectorXd::Zero(est.NumGDLs);
     historico.push_back({uAtual, Eigen::VectorXd::Zero(est.NumGDLs), Eigen::VectorXd::Zero(est.NumGDLs), 0.0});
 
+    Eigen::VectorXd FRef = Construtor::montarVetorForcasReferencia(est);
+
     for (int passo = 1; passo <= numPassos; ++passo) {
         double lambda = (double)passo / numPassos;
-        Eigen::VectorXd PassoCarga = lambda * est.ForcasExternas;
+        Eigen::VectorXd PassoCarga = lambda * FRef;
 
         int iter = 0;
         double erro = 1.0;
@@ -142,11 +145,13 @@ std::vector<Resultado> AnaliseNaoLinearCompArco::executar(Estrutura& est) {
 
     historico.push_back({uAtual, Eigen::VectorXd::Zero(est.NumGDLs), Eigen::VectorXd::Zero(est.NumGDLs), 0.0});
 
+    Eigen::VectorXd FRef = Construtor::montarVetorForcasReferencia(est);
+
     for (int passo = 1; passo <= numPassos; ++passo) {
         Eigen::MatrixXd Kt = Construtor::montarMatrizRigidezGlobal(est, uAtual);
-        Eigen::VectorXd dummy = Eigen::VectorXd::Zero(est.NumGDLs);
-        est.aplicarCondicoesContorno(Kt, dummy);
-        Eigen::VectorXd deltaUr = Kt.colPivHouseholderQr().solve(est.ForcasExternas);
+        Eigen::VectorXd FRef_solver = FRef;
+        est.aplicarCondicoesContorno(Kt, FRef_solver);
+        Eigen::VectorXd deltaUr = Kt.colPivHouseholderQr().solve(FRef_solver);
 
         double normDur = deltaUr.norm();
         if (normDur < 1e-12) normDur = 1e-12;
@@ -161,14 +166,15 @@ std::vector<Resultado> AnaliseNaoLinearCompArco::executar(Estrutura& est) {
         int iter = 0;
         while (iter < maxIter) {
             Eigen::VectorXd Fint = Construtor::montarForcasInternasGlobais(est, uAtual + DELTAU);
-            Eigen::VectorXd g = lambdaTentativo * est.ForcasExternas - Fint;
+            Eigen::VectorXd g = lambdaTentativo * FRef - Fint;
             for (int dof : est.NosFixos) g(dof) = 0.0;
             if (g.norm() <= tol) break;
 
             Kt = Construtor::montarMatrizRigidezGlobal(est, uAtual + DELTAU);
-            est.aplicarCondicoesContorno(Kt, dummy);
+            Eigen::VectorXd FRef_iter = FRef;
+            est.aplicarCondicoesContorno(Kt, FRef_iter);
             Eigen::VectorXd deltaUg = Kt.colPivHouseholderQr().solve(g);
-            deltaUr = Kt.colPivHouseholderQr().solve(est.ForcasExternas);
+            deltaUr = Kt.colPivHouseholderQr().solve(FRef_iter);
 
             double topo = DELTAU0.dot(deltaUg);
             double base = DELTAU0.dot(deltaUr);
@@ -185,8 +191,8 @@ std::vector<Resultado> AnaliseNaoLinearCompArco::executar(Estrutura& est) {
         if (iter > 0) deltal = deltal0 * std::sqrt(Nd / static_cast<double>(iter));
 
         Eigen::VectorXd FintFinal = Construtor::montarForcasInternasGlobais(est, uAtual);
-        Eigen::VectorXd R = FintFinal - (lambda * est.ForcasExternas);
-        historico.push_back({uAtual, lambda * est.ForcasExternas, R, lambda});
+        Eigen::VectorXd R = FintFinal - (lambda * FRef);
+        historico.push_back({uAtual, lambda * FRef, R, lambda});
     }
     return historico;
 }
