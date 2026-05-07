@@ -3,6 +3,7 @@
 
 #include <vector>
 #include <memory>
+#include <Eigen/Sparse>
 #include "Engine/No.h"
 #include "Engine/ElementoFinito.h"
 
@@ -18,15 +19,15 @@ public:
 
     void adicionarNo(std::shared_ptr<No> no);
     void adicionarElemento(std::shared_ptr<ElementoFinito> elemento);
-    void aplicarCondicoesContorno(Eigen::MatrixXd& K, Eigen::VectorXd& F) const;
+    void aplicarCondicoesContorno(Eigen::SparseMatrix<double>& K, Eigen::VectorXd& F) const;
     void perturbarGeometria(const Eigen::VectorXd& modo, double amplitude);
 };
 
 class Construtor {
 public:
-    static Eigen::MatrixXd montarMatrizRigidezGlobal(const Estrutura& est, const Eigen::VectorXd& uGlobal);
+    static Eigen::SparseMatrix<double> montarMatrizRigidezGlobal(const Estrutura& est, const Eigen::VectorXd& uGlobal);
     static Eigen::VectorXd montarForcasInternasGlobais(const Estrutura& est, const Eigen::VectorXd& uGlobal);
-    static Eigen::MatrixXd montarMatrizRigidezGeometricaGlobal(const Estrutura& est, const Eigen::VectorXd& esforcosNormais);
+    static Eigen::SparseMatrix<double> montarMatrizRigidezGeometricaGlobal(const Estrutura& est, const Eigen::VectorXd& esforcosNormais);
     static Eigen::VectorXd montarVetorForcasReferencia(const Estrutura& est);
 };
 

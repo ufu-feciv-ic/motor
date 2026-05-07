@@ -13,13 +13,24 @@ void Estrutura::adicionarElemento(std::shared_ptr<ElementoFinito> elemento) {
     Elementos.push_back(elemento);
 }
 
-void Estrutura::aplicarCondicoesContorno(Eigen::MatrixXd& K, Eigen::VectorXd& F) const {
+void Estrutura::aplicarCondicoesContorno(Eigen::SparseMatrix<double>& K, Eigen::VectorXd& F) const {
+    // Identifica todos os GDLs fixos
+    std::vector<bool> isFixed(NumGDLs, false);
+    for (int GDL : NosFixos) isFixed[GDL] = true;
+
+    // Pruna a matriz: remove todas as entradas em linhas ou colunas fixas
+    // (Exceto a diagonal, que será definida abaixo)
+    K.prune([&isFixed](int row, int col, double) {
+        return !isFixed[row] && !isFixed[col];
+    });
+
+    // Coloca 1.0 na diagonal dos GDLs fixos e zera o vetor de forças
     for (int GDL : NosFixos) {
-        K.row(GDL).setZero();
-        K.col(GDL).setZero();
-        K(GDL, GDL) = 1.0;
+        K.coeffRef(GDL, GDL) = 1.0;
         F(GDL) = 0.0;
     }
+    
+    K.makeCompressed();
 }
 
 void Estrutura::perturbarGeometria(const Eigen::VectorXd& modo, double amplitude) {
@@ -41,18 +52,24 @@ void Estrutura::perturbarGeometria(const Eigen::VectorXd& modo, double amplitude
     }
 }
 
-Eigen::MatrixXd Construtor::montarMatrizRigidezGlobal(const Estrutura& est, const Eigen::VectorXd& uGlobal) {
-    Eigen::MatrixXd KGlobalEst = Eigen::MatrixXd::Zero(est.NumGDLs, est.NumGDLs);
+Eigen::SparseMatrix<double> Construtor::montarMatrizRigidezGlobal(const Estrutura& est, const Eigen::VectorXd& uGlobal) {
+    std::vector<Eigen::Triplet<double>> triplets;
+    // Reserva espaço aproximado (6x6 por elemento)
+    triplets.reserve(est.Elementos.size() * 36);
 
     for (const auto& elemento : est.Elementos) {
         Eigen::MatrixXd KGlobalElem = elemento->getMatrizRigidezGlobal(uGlobal);
         std::vector<int> GDLs = elemento->getGDLsGlobais();
 
-        for (size_t i = 0; i < GDLs.size(); ++i)
-            for (size_t j = 0; j < GDLs.size(); ++j)
-                KGlobalEst(GDLs[i], GDLs[j]) += KGlobalElem(i, j);
+        for (size_t i = 0; i < GDLs.size(); ++i) {
+            for (size_t j = 0; j < GDLs.size(); ++j) {
+                triplets.push_back(Eigen::Triplet<double>(GDLs[i], GDLs[j], KGlobalElem(i, j)));
+            }
+        }
     }
 
+    Eigen::SparseMatrix<double> KGlobalEst(est.NumGDLs, est.NumGDLs);
+    KGlobalEst.setFromTriplets(triplets.begin(), triplets.end());
     return KGlobalEst;
 }
 
@@ -70,19 +87,24 @@ Eigen::VectorXd Construtor::montarForcasInternasGlobais(const Estrutura& est, co
     return FGlobal;
 }
 
-Eigen::MatrixXd Construtor::montarMatrizRigidezGeometricaGlobal(const Estrutura& est, const Eigen::VectorXd& esforcosNormais) {
-    Eigen::MatrixXd KGGlobalEst = Eigen::MatrixXd::Zero(est.NumGDLs, est.NumGDLs);
+Eigen::SparseMatrix<double> Construtor::montarMatrizRigidezGeometricaGlobal(const Estrutura& est, const Eigen::VectorXd& esforcosNormais) {
+    std::vector<Eigen::Triplet<double>> triplets;
+    triplets.reserve(est.Elementos.size() * 36);
 
     for (size_t i = 0; i < est.Elementos.size(); ++i) {
         const auto& elemento = est.Elementos[i];
         Eigen::MatrixXd KGElem = elemento->getMatrizRigidezGeometrica(esforcosNormais(i));
         std::vector<int> GDLs = elemento->getGDLsGlobais();
 
-        for (size_t row = 0; row < GDLs.size(); ++row)
-            for (size_t col = 0; col < GDLs.size(); ++col)
-                KGGlobalEst(GDLs[row], GDLs[col]) += KGElem(row, col);
+        for (size_t row = 0; row < GDLs.size(); ++row) {
+            for (size_t col = 0; col < GDLs.size(); ++col) {
+                triplets.push_back(Eigen::Triplet<double>(GDLs[row], GDLs[col], KGElem(row, col)));
+            }
+        }
     }
 
+    Eigen::SparseMatrix<double> KGGlobalEst(est.NumGDLs, est.NumGDLs);
+    KGGlobalEst.setFromTriplets(triplets.begin(), triplets.end());
     return KGGlobalEst;
 }
 

@@ -1,5 +1,6 @@
 #include "Engine/Solvers.h"
 #include <Eigen/Eigenvalues>
+#include <Eigen/SparseLU>
 #include <algorithm>
 
 namespace Engine {
@@ -7,16 +8,19 @@ namespace Engine {
 // --- AnaliseBuckling ---
 
 std::vector<AnaliseBuckling::ModoBuckling> AnaliseBuckling::executar(Estrutura& est) {
-    std::cout << "Iniciando Analise de Flambagem Linear...\n";
+    std::cout << "Iniciando Analise de Flambagem Linear (Esparsa)...\n";
 
     Eigen::VectorXd uZero = Eigen::VectorXd::Zero(est.NumGDLs);
-    Eigen::MatrixXd K = Construtor::montarMatrizRigidezGlobal(est, uZero);
+    Eigen::SparseMatrix<double> K = Construtor::montarMatrizRigidezGlobal(est, uZero);
     Eigen::VectorXd F = Construtor::montarVetorForcasReferencia(est);
     
-    Eigen::MatrixXd K_solver = K;
+    Eigen::SparseMatrix<double> K_solver = K;
     Eigen::VectorXd F_solver = F;
     est.aplicarCondicoesContorno(K_solver, F_solver);
-    Eigen::VectorXd uRef = K_solver.colPivHouseholderQr().solve(F_solver);
+    
+    Eigen::SparseLU<Eigen::SparseMatrix<double>> lu;
+    lu.compute(K_solver);
+    Eigen::VectorXd uRef = lu.solve(F_solver);
 
     Eigen::VectorXd Nref = Eigen::VectorXd::Zero(est.Elementos.size());
     for (size_t i = 0; i < est.Elementos.size(); ++i) {
@@ -24,7 +28,7 @@ std::vector<AnaliseBuckling::ModoBuckling> AnaliseBuckling::executar(Estrutura& 
         Nref(i) = esf.N;
     }
 
-    Eigen::MatrixXd KG = Construtor::montarMatrizRigidezGeometricaGlobal(est, Nref);
+    Eigen::SparseMatrix<double> KG = Construtor::montarMatrizRigidezGeometricaGlobal(est, Nref);
 
     std::vector<int> livres;
     std::vector<bool> eFixo(est.NumGDLs, false);
@@ -32,11 +36,15 @@ std::vector<AnaliseBuckling::ModoBuckling> AnaliseBuckling::executar(Estrutura& 
     for (int i = 0; i < est.NumGDLs; ++i) if (!eFixo[i]) livres.push_back(i);
 
     int nf = livres.size();
-    Eigen::MatrixXd Kff(nf, nf), KGff(nf, nf);
+    // Para autovalores, como o problema costuma ser pequeno nos testes, 
+    // convertemos as submatrizes livres para denso.
+    Eigen::MatrixXd Kff = Eigen::MatrixXd::Zero(nf, nf);
+    Eigen::MatrixXd KGff = Eigen::MatrixXd::Zero(nf, nf);
+    
     for (int i = 0; i < nf; ++i) {
         for (int j = 0; j < nf; ++j) {
-            Kff(i, j) = K(livres[i], livres[j]);
-            KGff(i, j) = KG(livres[i], livres[j]);
+            Kff(i, j) = K.coeff(livres[i], livres[j]);
+            KGff(i, j) = KG.coeff(livres[i], livres[j]);
         }
     }
 
@@ -65,17 +73,22 @@ std::vector<AnaliseBuckling::ModoBuckling> AnaliseBuckling::executar(Estrutura& 
 // --- AnaliseLinear ---
 
 std::vector<Resultado> AnaliseLinear::executar(Estrutura& est) {
-    std::cout << "Iniciando solucao do sistema linear...\n";
+    std::cout << "Iniciando solucao do sistema linear (Esparsa)...\n";
 
     Eigen::VectorXd uZero = Eigen::VectorXd::Zero(est.NumGDLs);
-    Eigen::MatrixXd KGlobalOriginal = Construtor::montarMatrizRigidezGlobal(est, uZero);
-    Eigen::MatrixXd KGlobalEst = KGlobalOriginal;
+    Eigen::SparseMatrix<double> KGlobal = Construtor::montarMatrizRigidezGlobal(est, uZero);
     Eigen::VectorXd FRef = Construtor::montarVetorForcasReferencia(est);
-    Eigen::VectorXd FGlobal = FRef;
 
-    est.aplicarCondicoesContorno(KGlobalEst, FGlobal);
-    Eigen::VectorXd uGlobal = KGlobalEst.colPivHouseholderQr().solve(FGlobal);
-    Eigen::VectorXd R = KGlobalOriginal * uGlobal - FRef;
+    Eigen::SparseMatrix<double> K_solver = KGlobal;
+    Eigen::VectorXd F_solver = FRef;
+    est.aplicarCondicoesContorno(K_solver, F_solver);
+
+    Eigen::SparseLU<Eigen::SparseMatrix<double>> lu;
+    lu.compute(K_solver);
+    Eigen::VectorXd uGlobal = lu.solve(F_solver);
+    
+    // Reacoes: R = Fint - Fext. Para linear, Fint = K * u.
+    Eigen::VectorXd R = KGlobal * uGlobal - FRef;
 
     Resultado resultado;
     resultado.u = uGlobal;
@@ -91,7 +104,7 @@ AnaliseNaoLinearNR::AnaliseNaoLinearNR(int passos, int iteracoes, double toleran
     : numPassos(passos), maxIter(iteracoes), tol(tolerancia) {}
 
 std::vector<Resultado> AnaliseNaoLinearNR::executar(Estrutura& est) {
-    std::cout << "--- Iniciando Solver Newton-Raphson ---\n";
+    std::cout << "--- Iniciando Solver Newton-Raphson (Esparsa) ---\n";
     std::vector<Resultado> historico;
 
     Eigen::VectorXd uAtual = Eigen::VectorXd::Zero(est.NumGDLs);
@@ -104,19 +117,20 @@ std::vector<Resultado> AnaliseNaoLinearNR::executar(Estrutura& est) {
         Eigen::VectorXd PassoCarga = lambda * FRef;
 
         int iter = 0;
-        double erro = 1.0;
-
         while (iter < maxIter) {
-            Eigen::MatrixXd KTangente = Construtor::montarMatrizRigidezGlobal(est, uAtual);
+            Eigen::SparseMatrix<double> KTangente = Construtor::montarMatrizRigidezGlobal(est, uAtual);
             Eigen::VectorXd Fint = Construtor::montarForcasInternasGlobais(est, uAtual);
             Eigen::VectorXd g = PassoCarga - Fint;
 
             for (int dof : est.NosFixos) g(dof) = 0.0;
-            erro = g.norm();
-            if (erro < tol) break;
+            if (g.norm() < tol) break;
 
             est.aplicarCondicoesContorno(KTangente, g);
-            Eigen::VectorXd deltaU = KTangente.ldlt().solve(g);
+            
+            Eigen::SparseLU<Eigen::SparseMatrix<double>> lu;
+            lu.compute(KTangente);
+            Eigen::VectorXd deltaU = lu.solve(g);
+            
             uAtual += deltaU;
             iter++;
         }
@@ -136,7 +150,7 @@ AnaliseNaoLinearCompArco::AnaliseNaoLinearCompArco(
     : numPassos(passos), maxIter(iteracoes), tol(tolerancia), deltal0(comprimentoArcoInicial), Nd(iterDesejadas) {}
 
 std::vector<Resultado> AnaliseNaoLinearCompArco::executar(Estrutura& est) {
-    std::cout << "--- Iniciando Solver Arc-Length ---\n";
+    std::cout << "--- Iniciando Solver Arc-Length (Esparsa) ---\n";
     std::vector<Resultado> historico;
     Eigen::VectorXd uAtual = Eigen::VectorXd::Zero(est.NumGDLs);
     Eigen::VectorXd DELTAU = Eigen::VectorXd::Zero(est.NumGDLs);
@@ -148,10 +162,13 @@ std::vector<Resultado> AnaliseNaoLinearCompArco::executar(Estrutura& est) {
     Eigen::VectorXd FRef = Construtor::montarVetorForcasReferencia(est);
 
     for (int passo = 1; passo <= numPassos; ++passo) {
-        Eigen::MatrixXd Kt = Construtor::montarMatrizRigidezGlobal(est, uAtual);
+        Eigen::SparseMatrix<double> Kt = Construtor::montarMatrizRigidezGlobal(est, uAtual);
         Eigen::VectorXd FRef_solver = FRef;
         est.aplicarCondicoesContorno(Kt, FRef_solver);
-        Eigen::VectorXd deltaUr = Kt.colPivHouseholderQr().solve(FRef_solver);
+        
+        Eigen::SparseLU<Eigen::SparseMatrix<double>> lu;
+        lu.compute(Kt);
+        Eigen::VectorXd deltaUr = lu.solve(FRef_solver);
 
         double normDur = deltaUr.norm();
         if (normDur < 1e-12) normDur = 1e-12;
@@ -173,8 +190,10 @@ std::vector<Resultado> AnaliseNaoLinearCompArco::executar(Estrutura& est) {
             Kt = Construtor::montarMatrizRigidezGlobal(est, uAtual + DELTAU);
             Eigen::VectorXd FRef_iter = FRef;
             est.aplicarCondicoesContorno(Kt, FRef_iter);
-            Eigen::VectorXd deltaUg = Kt.colPivHouseholderQr().solve(g);
-            deltaUr = Kt.colPivHouseholderQr().solve(FRef_iter);
+            
+            lu.compute(Kt);
+            Eigen::VectorXd deltaUg = lu.solve(g);
+            deltaUr = lu.solve(FRef_iter);
 
             double topo = DELTAU0.dot(deltaUg);
             double base = DELTAU0.dot(deltaUr);
