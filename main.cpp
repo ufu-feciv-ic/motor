@@ -204,16 +204,67 @@ void SetupVigaDistribuida(Estrutura& est, std::vector<ArestaRender>& arestas, do
     dofApexY = est.Nos[nElem / 2]->gdlGlobais[1]; // Centro da viga
 }
 
-void DrawArrow(Vector2 start, Vector2 end, float thickness, Color color) {
+void SetupPorticoLee(Estrutura& est, std::vector<ArestaRender>& arestas, double& h_apex, int& dofApexY, int analiseTipo) {
+    est = Estrutura();
+    arestas.clear();
+
+    // Propriedades do material (Benchmark Lee, 1988)
+    // E = 7.2e5 kgf/cm² ≈ 7060.8 kN/cm²
+    // A = 6.0 cm², I = 2.0 cm⁴
+    PropriedadesMaterial mat = {7060.8, 6.0, 2.0};
+
+    int dof_count = 0;
+
+    // 1. Criar os Nós da Coluna (10 elementos de 12 cm = 120 cm)
+    for (int i = 0; i <= 10; ++i) {
+        auto no = std::make_shared<No>(i, 0.0, i * 12.0, std::vector<int>{dof_count, dof_count + 1, dof_count + 2});
+        est.adicionarNo(no);
+        dof_count += 3;
+    }
+
+    // 2. Criar os Nós da Viga (10 elementos de 12 cm = 120 cm)
+    // O ponto de carga está a 24cm (Nó 12 no sistema global)
+    for (int i = 1; i <= 10; ++i) {
+        auto no = std::make_shared<No>(10 + i, i * 12.0, 120.0, std::vector<int>{dof_count, dof_count + 1, dof_count + 2});
+        est.adicionarNo(no);
+        dof_count += 3;
+    }
+
+    // 3. Criar os Elementos Finitos (Total de 20 elementos)
+    for (int i = 0; i < 20; ++i) {
+        std::shared_ptr<ElementoFinito> viga;
+        if (analiseTipo == 0) viga = std::make_shared<Viga2DLinear>(est.Nos[i], est.Nos[i+1], mat);
+        else viga = std::make_shared<Viga2DCorrotacional>(est.Nos[i], est.Nos[i + 1], mat);
+        est.adicionarElemento(viga);
+        arestas.push_back({i, i + 1});
+    }
+
+    // 4. Aplicar as Condições de Contorno (Rotulado-Rotulado)
+    // Nó 0 (base do pilar) e Nó 20 (extremidade da viga) restritos em X e Y
+    est.NosFixos = {
+        est.Nos[0]->gdlGlobais[0], est.Nos[0]->gdlGlobais[1],
+        est.Nos[20]->gdlGlobais[0], est.Nos[20]->gdlGlobais[1]
+    };
+
+    // 5. Aplicar o Carregamento Externo
+    est.ForcasExternas = Eigen::VectorXd::Zero(est.NumGDLs);
+    // A carga P encontra-se no Nó 12 (após os 10 da coluna + 2 da viga = 24cm)
+    est.ForcasExternas(est.Nos[12]->gdlGlobais[1]) = -1.0;
+
+    // 6. Configurações para extração dos resultados do gráfico
+    h_apex = 1.0; // cm reais
+    dofApexY = est.Nos[12]->gdlGlobais[1]; // Deslocamento vertical do nó sob a força
+}
+
+void DrawArrow(Vector2 start, Vector2 end, float thickness, float headLen, Color color) {
     float dx = end.x - start.x;
     float dy = end.y - start.y;
     float length = sqrtf(dx*dx + dy*dy);
-    if (length < 0.1f) return;
+    if (length < 0.0001f) return;
 
     DrawLineEx(start, end, thickness, color);
     
     float angle = atan2f(dy, dx);
-    float headLen = 15.0f;
     float headAngle = 0.4f; 
     
     Vector2 p1 = { end.x - headLen * cosf(angle - headAngle), end.y - headLen * sinf(angle - headAngle) };
@@ -222,11 +273,8 @@ void DrawArrow(Vector2 start, Vector2 end, float thickness, Color color) {
     DrawTriangle(end, p1, p2, color);
 }
 
-Vector2 WorldToScreen(double x, double y, float screenW, float screenH) {
-    float scale = 30.0f; 
-    float offsetX = screenW * 0.2f;
-    float offsetY = screenH * 0.6f; 
-    return { static_cast<float>(offsetX + x * scale), static_cast<float>(offsetY - y * scale) };
+Vector2 WorldToScreen(double x, double y) {
+    return { static_cast<float>(x), static_cast<float>(-y) };
 }
 
 int main()
@@ -262,6 +310,7 @@ int main()
         else if (modeloSelecionado == 3) SetupVigaBiapoiada(est, arestas, h_apex, dofApexY, analiseSelecionada);
         else if (modeloSelecionado == 4) SetupPilarEngastado(est, arestas, h_apex, dofApexY, analiseSelecionada);
         else if (modeloSelecionado == 5) SetupVigaDistribuida(est, arestas, h_apex, dofApexY, analiseSelecionada);
+        else if (modeloSelecionado == 6) SetupPorticoLee(est, arestas, h_apex, dofApexY, analiseSelecionada);
 
         modosBuckling = AnaliseBuckling::executar(est);
 
@@ -282,8 +331,10 @@ int main()
                 AnaliseNaoLinearCompArco solver(33, 50, 1e-6, 0.025, 5.0);
                 history = solver.executar(est);
             } else if (modeloSelecionado == 5) {
-                // Para a viga distribuída, usamos passos menores para capturar a curva de endurecimento (catenária)
                 AnaliseNaoLinearCompArco solver(60, 50, 1e-6, 0.02, 5.0); 
+                history = solver.executar(est);
+            } else if (modeloSelecionado == 6) {
+                AnaliseNaoLinearCompArco solver(180, 50, 1e-6, 0.5, 5.0); 
                 history = solver.executar(est);
             } else {
                 AnaliseNaoLinearCompArco solver(30, 50, 1e-6, 0.2, 5.0);
@@ -319,61 +370,75 @@ int main()
     rlImGuiSetup(true);
     ImPlot::CreateContext();
 
+    Camera2D camera = { 0 };
+    camera.target = { 0, 0 };
+    camera.offset = { (float)GetScreenWidth() * 0.1f, (float)GetScreenHeight() * 0.8f };
+    camera.rotation = 0.0f;
+    camera.zoom = 10.0f;
+
     while (!WindowShouldClose())
     {
+        if (IsWindowResized()) {
+            camera.offset = { (float)GetScreenWidth() * 0.1f, (float)GetScreenHeight() * 0.8f };
+        }
+
+        if (!ImGui::GetIO().WantCaptureMouse) {
+            float wheel = GetMouseWheelMove();
+            if (wheel != 0) {
+                Vector2 mouseWorldPos = GetScreenToWorld2D(GetMousePosition(), camera);
+                camera.offset = GetMousePosition();
+                camera.target = mouseWorldPos;
+                camera.zoom += wheel * 0.125f * camera.zoom;
+                if (camera.zoom < 0.01f) camera.zoom = 0.01f;
+            }
+            if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+                Vector2 delta = GetMouseDelta();
+                camera.target.x -= delta.x / camera.zoom;
+                camera.target.y -= delta.y / camera.zoom;
+            }
+        }
+
         BeginDrawing();
         ClearBackground(Color{30, 30, 35, 255});
 
+        BeginMode2D(camera);
         if (!historyUI.empty()) {
             const ResultadoPassoUI& state = historyUI[current_step];
 
             for (const auto& e : arestas) {
                 const auto& no1 = est.Nos[e.n1];
                 const auto& no2 = est.Nos[e.n2];
-                Vector2 p1 = WorldToScreen(no1->x + state.udesl(no1->gdlGlobais[0]), no1->y + state.udesl(no1->gdlGlobais[1]), (float)GetScreenWidth(), (float)GetScreenHeight());
-                Vector2 p2 = WorldToScreen(no2->x + state.udesl(no2->gdlGlobais[0]), no2->y + state.udesl(no2->gdlGlobais[1]), (float)GetScreenWidth(), (float)GetScreenHeight());
-                DrawLineEx(p1, p2, 3.0f, SKYBLUE);
-                DrawCircleV(p1, 4.0f, WHITE);
-                DrawCircleV(p2, 4.0f, WHITE);
+                Vector2 p1 = WorldToScreen(no1->x + state.udesl(no1->gdlGlobais[0]), no1->y + state.udesl(no1->gdlGlobais[1]));
+                Vector2 p2 = WorldToScreen(no2->x + state.udesl(no2->gdlGlobais[0]), no2->y + state.udesl(no2->gdlGlobais[1]));
+                DrawLineEx(p1, p2, 2.5f / camera.zoom, SKYBLUE);
+                DrawCircleV(p1, 4.0f / camera.zoom, WHITE);
+                DrawCircleV(p2, 4.0f / camera.zoom, WHITE);
             }
 
-            // Desenhar Cargas Distribuídas
             for (size_t i = 0; i < arestas.size(); ++i) {
                 const auto& elem = est.Elementos[i];
                 if (std::abs(elem->carga.qx) > 1e-6 || std::abs(elem->carga.qy) > 1e-6) {
                     const auto& e = arestas[i];
-                    const auto& n1 = est.Nos[e.n1];
-                    const auto& n2 = est.Nos[e.n2];
-                    
-                    Vector2 p1 = WorldToScreen(n1->x + state.udesl(n1->gdlGlobais[0]), n1->y + state.udesl(n1->gdlGlobais[1]), (float)GetScreenWidth(), (float)GetScreenHeight());
-                    Vector2 p2 = WorldToScreen(n2->x + state.udesl(n2->gdlGlobais[0]), n2->y + state.udesl(n2->gdlGlobais[1]), (float)GetScreenWidth(), (float)GetScreenHeight());
-                    
+                    const auto& n1 = est.Nos[e.n1]; const auto& n2 = est.Nos[e.n2];
+                    Vector2 p1 = WorldToScreen(n1->x + state.udesl(n1->gdlGlobais[0]), n1->y + state.udesl(n1->gdlGlobais[1]));
+                    Vector2 p2 = WorldToScreen(n2->x + state.udesl(n2->gdlGlobais[0]), n2->y + state.udesl(n2->gdlGlobais[1]));
                     double dx = (n2->x + state.udesl(n2->gdlGlobais[0])) - (n1->x + state.udesl(n1->gdlGlobais[0]));
                     double dy = (n2->y + state.udesl(n2->gdlGlobais[1])) - (n1->y + state.udesl(n1->gdlGlobais[1]));
-                    double L = std::hypot(dx, dy);
-                    if (L < 1e-6) L = 1e-6;
-                    double nx = -dy / L;
-                    double ny = dx / L;
-                    double tx = dx / L;
-                    double ty = dy / L;
+                    double L = std::hypot(dx, dy); if (L < 1e-6) L = 1e-6;
+                    double nx = -dy / L; double ny = dx / L;
+                    double tx = dx / L; double ty = dy / L;
 
                     int numArrows = 3;
                     for (int j = 0; j <= numArrows; ++j) {
                         float t = (float)j / (float)numArrows;
                         Vector2 p = { p1.x + (p2.x - p1.x) * t, p1.y + (p2.y - p1.y) * t };
-                        
                         double loadX = (elem->carga.qx * tx + elem->carga.qy * nx) * state.lambda;
                         double loadY = (elem->carga.qx * ty + elem->carga.qy * ny) * state.lambda;
-                        
-                        float vx = (float)loadX;
-                        float vy = (float)(-loadY);
-                        float mag = sqrtf(vx*vx + vy*vy);
-                        if (mag < 1e-6) continue;
+                        float vx = (float)loadX; float vy = (float)(-loadY);
+                        float mag = sqrtf(vx*vx + vy*vy); if (mag < 1e-6) continue;
                         vx /= mag; vy /= mag;
-
-                        float arrowLen = 30.0f;
-                        Vector2 pStart = { p.x - vx * arrowLen, p.y - vy * arrowLen };
-                        DrawArrow(pStart, p, 2.0f, ORANGE);
+                        float arrowLenWorld = 40.0f / camera.zoom;
+                        DrawArrow({ p.x - vx * arrowLenWorld, p.y - vy * arrowLenWorld }, p, 1.5f / camera.zoom, 8.0f / camera.zoom, ORANGE);
                     }
                 }
             }
@@ -381,52 +446,29 @@ int main()
             for (const auto& no : est.Nos) {
                 double fx = est.ForcasExternas(no->gdlGlobais[0]) * state.lambda;
                 double fy = est.ForcasExternas(no->gdlGlobais[1]) * state.lambda;
-
                 if (std::abs(fx) > 1e-6 || std::abs(fy) > 1e-6) {
-                    Vector2 pNode = WorldToScreen(no->x + state.udesl(no->gdlGlobais[0]), 
-                                                  no->y + state.udesl(no->gdlGlobais[1]), 
-                                                  (float)GetScreenWidth(), (float)GetScreenHeight());
-                    
-                    float vx = (float)fx;
-                    float vy = (float)(-fy); 
-                    float mag = sqrtf(vx*vx + vy*vy);
-                    vx /= mag; vy /= mag;
-
-                    float arrowLen = 50.0f;
-                    Vector2 pStart = { pNode.x - vx * arrowLen, pNode.y - vy * arrowLen };
-                    DrawArrow(pStart, pNode, 3.0f, RED);
-                    DrawText(TextFormat("%.2f", std::sqrt(fx*fx + fy*fy)), (int)pStart.x - 10, (int)pStart.y - 20, 18, YELLOW);
+                    Vector2 pNode = WorldToScreen(no->x + state.udesl(no->gdlGlobais[0]), no->y + state.udesl(no->gdlGlobais[1]));
+                    float vx = (float)fx; float vy = (float)(-fy); 
+                    float mag = sqrtf(vx*vx + vy*vy); vx /= mag; vy /= mag;
+                    float arrowLenWorld = 50.0f / camera.zoom;
+                    DrawArrow({ pNode.x - vx * arrowLenWorld, pNode.y - vy * arrowLenWorld }, pNode, 2.5f / camera.zoom, 12.0f / camera.zoom, RED);
                 }
             }
 
             if (mostrarReacoes) {
                 for (const auto& no : est.Nos) {
-                    double rx = state.reacoes(no->gdlGlobais[0]);
-                    double ry = state.reacoes(no->gdlGlobais[1]);
+                    double rx = state.reacoes(no->gdlGlobais[0]); double ry = state.reacoes(no->gdlGlobais[1]);
                     double mz = state.reacoes(no->gdlGlobais[2]);
-
                     if (std::abs(rx) > 1e-4 || std::abs(ry) > 1e-4) {
-                        Vector2 pNode = WorldToScreen(no->x + state.udesl(no->gdlGlobais[0]), 
-                                                      no->y + state.udesl(no->gdlGlobais[1]), 
-                                                      (float)GetScreenWidth(), (float)GetScreenHeight());
-                        
-                        float vx = (float)rx;
-                        float vy = (float)(-ry); 
-                        float mag = sqrtf(vx*vx + vy*vy);
-                        vx /= mag; vy /= mag;
-
-                        float arrowLen = 40.0f;
-                        Vector2 pStart = { pNode.x - vx * arrowLen, pNode.y - vy * arrowLen };
-                        DrawArrow(pStart, pNode, 2.5f, MAGENTA);
-                        DrawText(TextFormat("R:%.1f", mag), (int)pStart.x + 5, (int)pStart.y + 5, 15, MAGENTA);
+                        Vector2 pNode = WorldToScreen(no->x + state.udesl(no->gdlGlobais[0]), no->y + state.udesl(no->gdlGlobais[1]));
+                        float vx = (float)rx; float vy = (float)(-ry); 
+                        float mag = sqrtf(vx*vx + vy*vy); vx /= mag; vy /= mag;
+                        float arrowLenWorld = 40.0f / camera.zoom;
+                        DrawArrow({ pNode.x - vx * arrowLenWorld, pNode.y - vy * arrowLenWorld }, pNode, 2.0f / camera.zoom, 10.0f / camera.zoom, MAGENTA);
                     }
-                    
                     if (std::abs(mz) > 1e-4) {
-                         Vector2 pNode = WorldToScreen(no->x + state.udesl(no->gdlGlobais[0]), 
-                                                      no->y + state.udesl(no->gdlGlobais[1]), 
-                                                      (float)GetScreenWidth(), (float)GetScreenHeight());
-                         DrawCircleLines((int)pNode.x, (int)pNode.y, 15.0f, MAGENTA);
-                         DrawText(TextFormat("M:%.1f", mz), (int)pNode.x - 20, (int)pNode.y + 20, 15, MAGENTA);
+                         Vector2 pNode = WorldToScreen(no->x + state.udesl(no->gdlGlobais[0]), no->y + state.udesl(no->gdlGlobais[1]));
+                         DrawCircleLinesV(pNode, 15.0f / camera.zoom, MAGENTA);
                     }
                 }
             }
@@ -444,11 +486,31 @@ int main()
                     if (tipoDiagrama == 1) { v1 = v2 = esf.N * escalaDiagrama; c = GREEN; }
                     else if (tipoDiagrama == 2) { v1 = v2 = esf.V * escalaDiagrama; c = ORANGE; }
                     else if (tipoDiagrama == 3) { v1 = esf.M1 * escalaDiagrama; v2 = -esf.M2 * escalaDiagrama; c = RED; }
-                    Vector2 p1 = WorldToScreen(x1_def, y1_def, (float)GetScreenWidth(), (float)GetScreenHeight());
-                    Vector2 p2 = WorldToScreen(x2_def, y2_def, (float)GetScreenWidth(), (float)GetScreenHeight());
-                    Vector2 d1 = WorldToScreen(x1_def + nx * v1, y1_def + ny * v1, (float)GetScreenWidth(), (float)GetScreenHeight());
-                    Vector2 d2 = WorldToScreen(x2_def + nx * v2, y2_def + ny * v2, (float)GetScreenWidth(), (float)GetScreenHeight());
-                    DrawLineEx(p1, d1, 2.0f, c); DrawLineEx(p2, d2, 2.0f, c); DrawLineEx(d1, d2, 2.0f, c);
+                    Vector2 p1 = WorldToScreen(x1_def, y1_def); Vector2 p2 = WorldToScreen(x2_def, y2_def);
+                    Vector2 d1 = WorldToScreen(x1_def + nx * v1, y1_def + ny * v1);
+                    Vector2 d2 = WorldToScreen(x2_def + nx * v2, y2_def + ny * v2);
+                    DrawLineEx(p1, d1, 1.5f / camera.zoom, c); DrawLineEx(p2, d2, 1.5f / camera.zoom, c); DrawLineEx(d1, d2, 1.5f / camera.zoom, c);
+                }
+            }
+        }
+        EndMode2D();
+
+        if (!historyUI.empty()) {
+            const ResultadoPassoUI& state = historyUI[current_step];
+            for (const auto& no : est.Nos) {
+                Vector2 pWorld = WorldToScreen(no->x + state.udesl(no->gdlGlobais[0]), no->y + state.udesl(no->gdlGlobais[1]));
+                Vector2 pScreen = GetWorldToScreen2D(pWorld, camera);
+                double fx = est.ForcasExternas(no->gdlGlobais[0]) * state.lambda;
+                double fy = est.ForcasExternas(no->gdlGlobais[1]) * state.lambda;
+                if (std::abs(fx) > 1e-6 || std::abs(fy) > 1e-6)
+                    DrawText(TextFormat("%.2f", std::sqrt(fx*fx + fy*fy)), (int)pScreen.x + 10, (int)pScreen.y - 25, 18, YELLOW);
+                if (mostrarReacoes) {
+                    double rx = state.reacoes(no->gdlGlobais[0]); double ry = state.reacoes(no->gdlGlobais[1]);
+                    double mz = state.reacoes(no->gdlGlobais[2]);
+                    if (std::abs(rx) > 1e-4 || std::abs(ry) > 1e-4)
+                        DrawText(TextFormat("R:%.1f", std::sqrt(rx*rx + ry*ry)), (int)pScreen.x + 10, (int)pScreen.y + 10, 15, MAGENTA);
+                    if (std::abs(mz) > 1e-4)
+                        DrawText(TextFormat("M:%.1f", mz), (int)pScreen.x - 50, (int)pScreen.y + 10, 15, MAGENTA);
                 }
             }
         }
@@ -465,6 +527,7 @@ int main()
         ImGui::RadioButton("Viga Engastada", &modeloSelecionado, 2);
         ImGui::RadioButton("Viga Bi-apoiada", &modeloSelecionado, 3);
         ImGui::RadioButton("Viga Carga Distr.", &modeloSelecionado, 5);
+        ImGui::RadioButton("Pórtico de Lee", &modeloSelecionado, 6);
         
         ImGui::Separator();
         ImGui::Text("Tipo de Análise:");
